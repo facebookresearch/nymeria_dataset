@@ -11,7 +11,7 @@ import tempfile
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set
+from typing import Any, Dict, List, Set
 from zipfile import is_zipfile, ZipFile
 
 import requests
@@ -99,12 +99,18 @@ class DlLink:
             tmp_filename = Path(tmpdir) / self.filename
             print(f"Donwload {self.filename} -> {tmp_filename}")
 
-            # download with streaming
             session = requests.Session()
+            """
+            Retry will be triggered for the following cases
+            (429) Too Many Requests
+            (500) Internal Server Error
+            (502) Bad Gateway
+            (503) Service Unavailable
+            (504) Gateway Timeout
+            """
             retries = Retry(
                 total=DlConfig.RETRY.value,
                 backoff_factor=DlConfig.BACKOFF_FACTOR.value,
-                # todo add comment
                 status_forcelist=[429, 500, 502, 503, 504],
             )
 
@@ -177,6 +183,7 @@ class DownloadManager:
             assert len(
                 self._sequences
             ), "No sequence found. Please check the json file is correct."
+        self.__get_data_summary()
         self._logs = {}
 
     @property
@@ -185,23 +192,39 @@ class DownloadManager:
 
     @property
     def logfile(self) -> Path:
-        return self.out_rootdir / "download_summary"
+        return self.out_rootdir / "download_summary.json"
+
+    def __get_data_summary(self):
+        missing = {x.name: {"count": 0, "sequences": []} for x in DataGroups}
+        for seq, dgs in self.sequences.items():
+            for dg in DataGroups:
+                if dg.name not in dgs:
+                    missing[dg.name]["count"] += 1
+                    missing[dg.name]["sequences"].append(seq)
+        fname = self.logfile.with_name("data_summary.json")
+        with open(fname, "w") as f:
+            json.dump(
+                {
+                    "missing_files": missing,
+                    "available_sequences": list(self.sequences.keys()),
+                },
+                f,
+                indent=2,
+            )
+        print(f"save data summary to {fname}")
 
     def __prepare(
         self,
         match_key: str,
         selected_groups: List["DataGroups"],
     ) -> Set["DataGroups"]:
-        # FIXME modify the code once metadata.json is fixed
-        # selected_groups += [DataGroups.license, DataGroups.metadata_json]
-        selected_groups += [DataGroups.LICENSE]
+        selected_groups += [DataGroups.LICENSE, DataGroups.metadata_json]
         selected_groups = set(selected_groups)
 
         num_seqs = 0
         total_gb = 0
         self._logs = {}
 
-        summary = {x.name: 0 for x in DataGroups}
         for seq, dgs in self.sequences.items():
             if match_key not in seq:
                 continue
@@ -211,8 +234,6 @@ class DownloadManager:
             for dg in selected_groups:
                 if dg.name not in dgs:
                     self._logs[seq][dg.name] = DlStatus.WARN_NOTFOUND.value
-                    summary[dg.name] += 1
-                    continue
                 else:
                     self._logs[seq][dg.name] = None
                     dl = DlLink(**{**dgs.get(dg.name, {}), "data_group": dg})
@@ -234,23 +255,14 @@ class DownloadManager:
             == "y"
         )
         if not confirm:
-            # save log which populates the list of files for downloading
-            self.__logging(summary=summary)
             exit(1)
         return selected_groups
 
-    def __logging(
-        self, dl: Optional[DlLink] = None, summary: Optional[Dict[str, Any]] = None
-    ) -> None:
-        if dl is not None:
-            self._logs[dl.seq_name][dl.data_group.name] = dl.status.value
-        if summary is not None:
-            self._logs["summary"] = summary
+    def __logging(self, **kwargs) -> None:
+        self._logs.update(**kwargs)
+
         with open(self.logfile, "w") as f:
             json.dump(self._logs, f, indent=2)
-
-        if summary is not None:
-            print(f"save {self.logfile}")
 
     def download(
         self,
@@ -259,7 +271,6 @@ class DownloadManager:
         ignore_existing: bool = True,
     ) -> None:
         selected_groups = self.__prepare(match_key, selected_groups)
-        self.__logging()
 
         summary = {x.name: 0 for x in DlStatus}
         for seq_name, dgs in self.sequences.items():
@@ -278,9 +289,10 @@ class DownloadManager:
                     print(f"downloading failure:, {e}")
 
                 summary[dl.status.name] += 1
-                self.__logging(dl)
+                self._logs[dl.seq_name][dl.data_group.name] = dl.status.value
+                self.__logging()
 
-        self.__logging(summary)
+        self.__logging(download_summary=summary)
         print(f"Dataset download to {self.out_rootdir}")
         print(f"Brief download summary: {json.dumps(summary, indent=2)}")
         print(f"Detailed summary saved to {self.logfile}")

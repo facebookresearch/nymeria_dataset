@@ -14,9 +14,9 @@ from nymeria.download_utils import DownloadManager
 
 def get_groups(full: bool = False) -> List[DataGroups]:
     """
-    Default behavior will return the full data per sequence.
-    Comment out lines to disable downloading certain group.
-    See nymeria/definitions.py GroupDefs for the content of each group
+    By default all data present in download_urls.JSON will be downloaded.
+    For selective download, comment out lines to disable certain groups.
+    See nymeria/definitions.py GroupDefs for the files included by each group.
     """
     return [
         DataGroups.LICENSE,
@@ -38,11 +38,11 @@ def get_groups(full: bool = False) -> List[DataGroups]:
 @click.command()
 @click.option(
     "-i",
-    "cdn_json",
+    "url_json",
     type=click.Path(file_okay=True, dir_okay=False, path_type=Path),
     default=None,
     required=True,
-    help="The json file contain CDN urls obtained from https://www.projectaria.com/datasets/nymeria/",
+    help="The json file contains download urls. Follow README.md instructions to access this file.",
 )
 @click.option(
     "-o",
@@ -55,10 +55,11 @@ def get_groups(full: bool = False) -> List[DataGroups]:
     "-k",
     "match_key",
     default="2023",
-    help="Partial key used to filter sequences for downloading",
+    help="Partial key used to filter sequences for downloading"
+    "Default key value = 2023, which include all available sequences",
 )
-def main(cdn_json: Path, rootdir: Path, match_key: str = "2023"):
-    dl = DownloadManager(cdn_json, out_rootdir=rootdir)
+def main(url_json: Path, rootdir: Path, match_key: str = "2023"):
+    dl = DownloadManager(url_json, out_rootdir=rootdir)
     dl.download(match_key=match_key, selected_groups=get_groups(), ignore_existing=True)
 
 
