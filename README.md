@@ -23,15 +23,15 @@ and future AR/VR technology. This repository hosts the API for downloading and v
 
 ### Installation
 
-Run the following commands to create a conda environment `nymeria` with
-this repository installed by pip.
+Run the following commands to create a conda environment `pymeria` with this repository installed by pip. 
 
 ```
    git clone git@github.com:facebookresearch/nymeria_dataset.git
    cd nymeria_dataset
    conda env create -f environment.yml
-   conda activate nymeria
 ```
+_Note_. Currently we only support Linux. This is due to how we install [pymomentum](https://github.com/facebookincubator/momentum). This dependency is used to load the parametric mesh model for body motion. If your workflow does not require this modality, removing pymomentum should be sufficient to get the code running on Windows and MacOS. 
+
 
 ### Download dataset
 
@@ -54,44 +54,39 @@ With this in mind, continue with one of the following paths.
 sequences for detailed view. On the right panel, locate a list of links to
 download particular data groups for that sequence.
 
-**Option 2 - Download multiple sequences.** For batch download, we provide a JSON file (`Nymeria_download_urls.json`) with urls.
-There are two ways to obtain the JSON file. You can visit our [project page](https://www.projectaria.com/datasets/nymeria/),
-and sign up with your email by *Access the Dataset* at the bottom.
-Once directed to the download page, click `DATA (Nymeria_download_urls.json)`.
-This file contains the urls to the full dataset.
-Alternatively, you can customize the JSON file with selected sequences on
-[dataset explorer](https://explorer.projectaria.com/?v=%22Nymeria%22). Locate the text box `filter dataset by` on the page top, configure the filter using sequence
-attributes, then click `Download found sequences`. If the filter is left empty, the JSON file will simply return the full dataset.
-Note urls in JSON file is valid for 14 days. Please obtain a new JSON file once urls expire.
+**Option 2 - Batch download multiple sequences.** For batch download, we provide a JSON file (`nymeria_download_urls.json`) with urls.
+There are two ways to obtain this JSON file. First, you can visit the [project page](https://www.projectaria.com/datasets/nymeria/),
+and sign up for *Access the Dataset* located at the bottom to be directed to the download. The downloaded file will contain the urls to the full dataset.
+Alternatively, you generate a customized JSON file with only selected sequences and modalities on
+[dataset explorer](https://explorer.projectaria.com/nymeria) using the data filter option. In either way, urls provided by the JSON file is valid for 14 days. Please obtain a new JSON file upon expiration.
 
-With the JSON file, you can visit the urls to access data. For convinience, we provide [download.py](./download.py) as an example
-script to parses the JSON file and download data into formatted directories. To use the script, first select target data groups by modifying the function `get_groups()` in [download.py](https://github.com/facebookresearch/nymeria_dataset/blob/main/download.py#L9-L29). Then run the following.
+With the JSON file, you can visit the urls to download data. For convinience, we provide [download.py](./download.py) as an example
+script to parses the JSON file and download data into formatted directories. 
 
 ```
-conda activate nymeria
+conda activate pymeria
 cd nymeria_dataset
 
-python download.py -i <Nymeria_download_urls.json> -o <dataset_outpath> [-k <partial_key>]
+python download.py -i <Nymeria_download_urls.json> -o <output_path> [-k <partial_key>]
 ```
 
-The script will ask your confirmation to proceed downloading. Under
-`<dataset_outpath>`, we produce a `download_summary.json` file to record the
-download status. The optional argument `-k` implements a partial key matching to select which sequences are downloaded.
+By modifying the function [`get_groups()`](https://github.com/facebookresearch/nymeria_dataset/blob/main/download.py#L9-L29), you can customize which data groups will be downloaded. 
+The script will produce a `download_summary.json` under the `<output_path>`. The optional argument `-k` implements a partial key matching to select desired sequences.
 Nymeria sequences are named by the following convention `<date>_<session_id>_<fake_id>_<act_id>_<uid>`.
-Here are some examples how to use the sequence filter.
+Here are some examples for how to use the sequence filter.
 ```
 # E.g., get all sequences collected in June
-python download.py -i <Nymeria_download_urls.json> -o <dataset_outpath> -k 202306
+python download.py -i <Nymeria_download_urls.json> -o <output_path> -k 202306
 
 # E.g., get all sequences from participant with fake_name, 'james_johnson'
-python download.py -i <Nymeria_download_urls.json> -o <dataset_outpath> -k james_johnson
+python download.py -i <Nymeria_download_urls.json> -o <output_path> -k james_johnson
 
 # E.g., get a particular sequence with uid egucf6
-python download.py -i <Nymeria_download_urls.json> -o <dataset_outpath> -k egucf6
+python download.py -i <Nymeria_download_urls.json> -o <output_path> -k egucf6
 ```
 
+### Load Nymeria data with visualization
 
-### Visualize the data
 
 ## License
 
