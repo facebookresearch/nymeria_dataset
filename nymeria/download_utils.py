@@ -67,19 +67,6 @@ class DlLink:
     def logdir(self) -> str:
         return "logs"
 
-    def __check_sha1sum(self, file_path: Path) -> None:
-        sha1 = hashlib.sha1()
-        with open(file_path, "rb") as f:
-            while chunk := f.read(DlConfig.READ_BYTE.value):
-                sha1.update(chunk)
-
-        computed = sha1.hexdigest()
-        if self.sha1sum != computed:
-            self.status = DlStatus.ERR_SHA1SUM
-            raise RuntimeError(
-                f"sha1sum mismatch, computed {computed}, expected {self.sha1sum}"
-            )
-
     def __check_outdir(self, outdir: Path) -> None:
         assert (
             outdir.name == self.seq_name
@@ -97,7 +84,7 @@ class DlLink:
 
         with tempfile.TemporaryDirectory() as tmpdir:
             tmp_filename = Path(tmpdir) / self.filename
-            logger.info(f"Donwload {self.filename} -> {tmp_filename}")
+            logger.info(f"Download {self.filename} -> {tmp_filename}")
 
             session = requests.Session()
             """
@@ -131,6 +118,7 @@ class DlLink:
                     )
 
                 with open(tmp_filename, "wb") as f:
+                    sha1 = hashlib.sha1()
                     progress_bar = tqdm(
                         total=self.file_size_bytes, unit="iB", unit_scale=True
                     )
@@ -139,6 +127,13 @@ class DlLink:
                     ):
                         progress_bar.update(len(chunk))
                         f.write(chunk)
+                        sha1.update(chunk)
+                    computed = sha1.hexdigest()
+                    if self.sha1sum != computed:
+                        self.status = DlStatus.ERR_SHA1SUM
+                        raise RuntimeError(
+                            f"sha1sum mismatch, computed {computed}, expected {self.sha1sum}"
+                        )
                     progress_bar.close()
 
                 try:
@@ -146,10 +141,6 @@ class DlLink:
                 except Exception as e:
                     self.status = DlStatus.ERR_NETWORK
                     raise RuntimeError(e)
-
-            # validate checksum
-            logger.info("validate sha1sum")
-            self.__check_sha1sum(tmp_filename)
 
             # move from tmp -> dst
             if is_zipfile(tmp_filename):
