@@ -8,7 +8,7 @@ dependencies:
   - pillow
   - click
   - requests
-  - pymomentum
+  - pymomentum>=0.1.15
   - tqdm
   - pip
   - pip:
