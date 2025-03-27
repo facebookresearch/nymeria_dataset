@@ -32,12 +32,6 @@ repository installed by pip.
    conda env create -f environment.yml
 ```
 
-_Note_. Currently we support Linux and MacOS but not Windows. This is due to how we install
-[pymomentum](https://github.com/facebookincubator/momentum). This dependency is
-used to load the parametric mesh model for body motion. If your workflow does
-not require this modality, removing pymomentum should be sufficient to get the
-code running on Windows.
-
 ### Download dataset
 
 Review the dataset [LICENSE](./LICENSE) to ensure your use case is covered.
