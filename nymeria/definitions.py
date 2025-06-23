@@ -137,8 +137,7 @@ class DataGroups(Enum):
     narration_activity_summarization_csv = TextFiles.activity_summarization
 
     semidense_observations = "semidense_observations"
-    
-    # Special entry for MVNX-only download URLs
+
     body_xdata_mvnx = "body_xdata_mvnx"
 
 
@@ -163,7 +162,6 @@ def get_group_definitions() -> dict[str, list]:
     g_defs = {x.name: [x.value] for x in DataGroups}
     g_defs[DataGroups.body_motion.name] = [x.default for x in fields(BodyFiles)]
     
-    # Special definition for MVNX-only downloads
     g_defs[DataGroups.body_xdata_mvnx.name] = [BodyFiles.xsens_raw]
 
     for x in [DataGroups.recording_head, DataGroups.recording_observer]:
