@@ -18,10 +18,6 @@ def get_groups(full: bool = False) -> list[DataGroups]:
     By default all data present in nymeria_download_urls.json will be downloaded.
     For selective download, comment out lines to disable certain groups.
     See nymeria/definitions.py GroupDefs for the files included by each group.
-    
-    For MVNX-only downloads using nymeria_download_urls_xdata_mvnx.json:
-    - Comment out all groups except body_xdata_mvnx
-    - Or use only [DataGroups.body_xdata_mvnx] to download MVNX files only
     """
     return [
         DataGroups.LICENSE,
