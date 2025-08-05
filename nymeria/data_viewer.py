@@ -198,7 +198,7 @@ class NymeriaViewer(ViewerConfig):
             if tag == "momentum":
                 ep = "world/body/momentum_mesh"
                 if self._init_mesh:
-                    rr.log_components(ep, [rr.components.Position3DBatch(val)])
+                    rr.log(ep, rr.Mesh3D.from_fields(vertex_positions=val))
                 else:
                     faces = nymeria_dp.body_dp.momentum_template_mesh.faces
                     normals = nymeria_dp.body_dp.momentum_template_mesh.normals
