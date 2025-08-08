@@ -33,6 +33,7 @@ def get_groups(full: bool = False) -> list[DataGroups]:
         DataGroups.narration_atomic_action_csv,
         DataGroups.narration_activity_summarization_csv,
         DataGroups.semidense_observations,
+        DataGroups.body_xdata_mvnx,
     ]
 
 
