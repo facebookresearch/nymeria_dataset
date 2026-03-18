@@ -36,6 +36,24 @@ def get_groups(full: bool = False) -> list[DataGroups]:
         DataGroups.body_xdata_mvnx,
     ]
 
+def get_groups_IMU() -> list[DataGroups]:
+    return [
+        DataGroups.LICENSE,
+        DataGroups.metadata_json,
+        DataGroups.body_motion,
+        DataGroups.recording_head,
+        # DataGroups.recording_head_data_data_vrs,
+        DataGroups.recording_lwrist,
+        DataGroups.recording_rwrist,
+        DataGroups.recording_observer,
+        # DataGroups.recording_observer_data_data_vrs,
+        # DataGroups.narration_motion_narration_csv,
+        # DataGroups.narration_atomic_action_csv,
+        # DataGroups.narration_activity_summarization_csv,
+        # DataGroups.semidense_observations,
+        DataGroups.body_xdata_mvnx,
+    ]
+
 
 @click.command()
 @click.option(
@@ -54,13 +72,25 @@ def get_groups(full: bool = False) -> list[DataGroups]:
     help="The root directory to hold the downloaded dataset",
 )
 @click.option(
+    "-m",
+    "minimal",
+    is_flag=True,
+    help="Download only the minimum required groups for VIO post processing",
+)
+@click.option(
+    "-f",
+    "overwrite",
+    is_flag=True,
+    help="Ignore existing files and redownload",
+)
+@click.option(
     "-k",
     "match_key",
     default="2023",
     help="Partial key used to filter sequences for downloading"
     "Default key value = 2023, which include all available sequences",
 )
-def main(url_json: Path, rootdir: Path, match_key: str = "2023") -> None:
+def main(url_json: Path, rootdir: Path, minimal: bool, overwrite: bool, match_key: str = "2023") -> None:
     logger.remove()
     logger.add(
         sys.stdout,
@@ -70,7 +100,8 @@ def main(url_json: Path, rootdir: Path, match_key: str = "2023") -> None:
     )
 
     dl = DownloadManager(url_json, out_rootdir=rootdir)
-    dl.download(match_key=match_key, selected_groups=get_groups(), ignore_existing=True)
+    groups = get_groups_IMU() if minimal else get_groups()
+    dl.download(match_key=match_key, selected_groups=groups, ignore_existing=overwrite)
 
 
 if __name__ == "__main__":
