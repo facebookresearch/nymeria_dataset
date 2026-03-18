@@ -1,10 +1,4 @@
 #!/usr/bin/env python3
-# Copyright (c) Meta Platforms, Inc. and affiliates.
-# All rights reserved.
-#
-# This source code is licensed under the license found in the
-# LICENSE file in the root directory of this source tree.
-
 """
 Export Nymeria dataset IMU sensor poses and biases to CSV files.
 
@@ -17,13 +11,41 @@ All timestamps in the output CSV are in TIME_CODE domain (shared across
 all devices) so that rows from different recordings are directly comparable.
 
 Output CSV columns:
-  timestamp_ns, x, y, z, qx, qy, qz, qw,
+  timestamp_ns, x, y, z, qw, qx, qy, qz,
+  gyro_radsec_x, gyro_radsec_y, gyro_radsec_z,
+  accel_msec2_x, accel_msec2_y, accel_msec2_z,
   bias_gyro_x, bias_gyro_y, bias_gyro_z,
   bias_accel_x, bias_accel_y, bias_accel_z
+
+TEMPORAL ALIGNMENT:
+  IMU timestamps in VRS represent the raw capture timestamp (DEVICE_TIME).
+  However, due to internal signal processing delays in the IMU, the instant
+  represented by this timestamp differs from the true measurement instant.
+
+  According to Project Aria documentation:
+    â(t_Device) = ã(t_Device + dt_Device_Gyro + 0.5*Δt)
+
+  Where:
+    - dt_Device_Gyro is the gyroscope time offset (estimated during calibration)
+    - Δt is the IMU sampling period
+    - 0.5*Δt accounts for the center of the integration window
+
+  We use ONLY the gyroscope time offset (not accelerometer) because:
+    - Gyroscope observes rotational motion which is highly correlated with
+      visual motion observed by cameras (used as reference for calibration)
+    - The accelerometer time offset estimation is less observable and thus
+      less reliable due to the noisier optimization landscape
+    - Both sensors share the same timestamp source in the VRS stream,
+      so the gyro offset is a better estimate of the true sensor-to-device
+      time alignment
+
+  The corrected timestamp for pose query is:
+    t_corrected = t_device_raw + dt_gyro_ns + half_period_ns
 """
 
 import csv
 import json
+import os
 import sys
 import traceback
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -41,13 +63,28 @@ SENSOR_LABELS = ["imu-left", "imu-right"]
 
 CSV_HEADER = [
     "timestamp_ns",
+
     "x",
     "y",
     "z",
+    
+    # Hamilton convention for quaternion
+    "qw",
     "qx",
     "qy",
     "qz",
-    "qw",
+
+    # gyro in rad per sec
+    "gyro_radsec_x",
+    "gyro_radsec_y",
+    "gyro_radsec_z",
+    
+    # accel in meter per sec²
+    "accel_msec2_x",
+    "accel_msec2_y",
+    "accel_msec2_z",
+
+    # biases
     "bias_gyro_x",
     "bias_gyro_y",
     "bias_gyro_z",
@@ -60,6 +97,45 @@ CSV_HEADER = [
 # ---------------------------------------------------------------------------
 # Report helpers
 # ---------------------------------------------------------------------------
+
+import os
+import sys
+import tempfile
+from contextlib import contextmanager
+from pathlib import Path
+
+from loguru import logger
+
+
+@contextmanager
+def suppress_native_stderr(show_on_error: bool = True):
+    """Redirige le stderr natif (C++) vers un fichier temp.
+    En cas d'exception, réaffiche le contenu capturé."""
+    stderr_fd = sys.stderr.fileno()
+    old_stderr = os.dup(stderr_fd)
+    tmp = tempfile.NamedTemporaryFile(mode="w+", suffix=".log", delete=False)
+
+    try:
+        os.dup2(tmp.fileno(), stderr_fd)
+        yield tmp
+    except Exception:
+        # Flush et relis le contenu capturé
+        tmp.flush()
+        tmp.seek(0)
+        captured = tmp.read()
+        # Restaure stderr avant de logger
+        os.dup2(old_stderr, stderr_fd)
+        os.close(old_stderr)
+        old_stderr = -1
+        if show_on_error and captured.strip():
+            logger.error(f"Logs natifs capturés avant le crash:\n{captured}")
+        raise
+    finally:
+        if old_stderr != -1:
+            os.dup2(old_stderr, stderr_fd)
+            os.close(old_stderr)
+        tmp.close()
+        Path(tmp.name).unlink(missing_ok=True)
 
 
 def load_report(report_path: Path) -> dict:
@@ -102,111 +178,86 @@ def discover_sequences(batch_path: Path) -> list[Path]:
                 if p.is_dir():
                     sequences.append(p)
                 else:
-                    logger.warning(f"Skipping non-existent path: {line}")
+                    logger.warning(f"Skipping invalid path: {line}")
         return sequences
 
     if batch_path.is_dir():
-        sequences = sorted(
-            [d for d in batch_path.iterdir() if d.is_dir()],
-            key=lambda p: p.name,
-        )
-        return sequences
+        return sorted([p for p in batch_path.iterdir() if p.is_dir()])
 
-    raise click.BadParameter(
-        f"{batch_path} is neither a directory nor a .txt file"
-    )
+    raise ValueError(f"batch_path must be a .txt file or a directory: {batch_path}")
 
 
 # ---------------------------------------------------------------------------
-# Core processing
+# IMU time offset helpers
 # ---------------------------------------------------------------------------
 
 
-def process_sequence(
-    sequence_dir: Path,
-    output_dir: Path,
-    use_online_calib: bool,
-) -> dict:
+def get_gyro_time_offset_sec(imu_calib) -> float:
     """
-    Process a single Nymeria sequence.
+    Get the gyroscope time offset from an ImuCalibration object.
 
-    Returns a report dict:
-        {
-            "status": "ok" | "error",
-            "files": [...],
-            "warnings": [...],
-            "error": str | None,
-        }
+    Falls back to 0.0 if the method is not available (older API versions).
     """
-    from nymeria.data_provider import NymeriaDataProvider
-    from projectaria_tools.core.sensor_data import TimeDomain
 
-    seq_name = sequence_dir.name
-    seq_output = output_dir / seq_name
-    seq_output.mkdir(parents=True, exist_ok=True)
+    # Human: Big doubts on the fact that there are multiple ways that were defined
+    # to access gyro time offset ... so we try the expected way (currently documented)
+    # first and then we let whatever Claude has done related to some doc he's read
 
-    entry: dict = {"status": "ok", "files": [], "warnings": []}
+    # The originally pinned version 1.5.5, has seemingly no access to time offsets 
+    # Seems that the correct version is this (using version 2.1.1)
+    if hasattr(imu_calib, "get_time_offset_sec_device_gyro"):
+        return imu_calib.get_time_offset_sec_device_gyro()
+
+    # Leaves the others access just in case, but we should inspect
+    # other versions of projectaria_tools to understand the history
+    # of time offset in calibration
+
+    if hasattr(imu_calib, "get_time_offset"):
+        return imu_calib.get_time_offset()
 
     try:
-        ndp = NymeriaDataProvider(
-            sequence_rootdir=sequence_dir,
-            load_head=True,
-            load_observer=True,
-            load_wrist=True,
-            load_body=False,
-            load_online_calib=use_online_calib,
-        )
-    except Exception as e:
-        entry["status"] = "error"
-        entry["error"] = f"Failed to create NymeriaDataProvider: {e}"
-        return entry
+        # Try the expected API method
+        gyro_model = imu_calib.get_gyro_model()
+        if hasattr(gyro_model, "get_time_offset"):
+            return gyro_model.get_time_offset()
+    except Exception:
+        pass
+    
+    # Fallback: no time offset correction
+    return 0.0
 
-    for device_tag in DEVICE_TAGS:
-        try:
-            rec = ndp.get_recording(device_tag)
-        except ValueError:
-            msg = f"{device_tag}: recording not available, skipping"
-            logger.warning(msg)
-            entry["warnings"].append(msg)
-            continue
 
-        if not rec.has_vrs:
-            msg = f"{device_tag}: no VRS file, skipping"
-            logger.warning(msg)
-            entry["warnings"].append(msg)
-            continue
+def retrieve_sampling_period_ns(sensor_calib, timestamps_ns: np.ndarray) -> int:
+    """
+    Retrieve from calibration or compute the sampling period from timestamps.
 
-        if not rec.has_pose:
-            msg = f"{device_tag}: no closed-loop trajectory, skipping"
-            logger.warning(msg)
-            entry["warnings"].append(msg)
-            continue
+    Args:
+        timestamps_ns: Array of timestamps in nanoseconds
 
-        for sensor_label in SENSOR_LABELS:
-            csv_name = f"{device_tag}_{sensor_label}.csv"
-            csv_path = seq_output / csv_name
+    Returns:
+        Sampling period or computed median sampling period in nanoseconds (eg. 1ms for 1kHz)
+    """
 
-            try:
-                n = _export_sensor_csv(
-                    ndp=ndp,
-                    rec=rec,
-                    device_tag=device_tag,
-                    sensor_label=sensor_label,
-                    csv_path=csv_path,
-                    use_online_calib=use_online_calib,
-                )
-                entry["files"].append({"name": csv_name, "samples": n})
-            except Exception as e:
-                msg = f"{device_tag}/{sensor_label}: {e}"
-                logger.error(msg)
-                entry["warnings"].append(msg)
+    if sensor_calib:
+        exit(1)
 
-    return entry
+    if len(timestamps_ns) < 2:
+        # Default to 1ms (1kHz) if not enough samples
+        return 1_000_000
+
+    diffs = np.diff(timestamps_ns)
+    median_period = int(np.median(diffs))
+    return median_period
+
+
+# ---------------------------------------------------------------------------
+# Single-sequence export
+# ---------------------------------------------------------------------------
 
 
 def _export_sensor_csv(
-    ndp,
-    rec,
+    ndp,  # NymeriaDataProvider
+    rec,  # RecordingDataProvider
     device_tag: str,
     sensor_label: str,
     csv_path: Path,
@@ -215,81 +266,149 @@ def _export_sensor_csv(
     """
     Export one CSV for one device/sensor pair.
 
-    Iteration strategy:
-      - Iterate over native IMU timestamps from VRS (DEVICE_TIME domain)
-      - Query pose and calibration in DEVICE_TIME (consistent within recording)
-      - Convert timestamp to TIME_CODE for the CSV (comparable across recordings)
+    Temporal alignment strategy:
+      1. Read raw IMU timestamps from VRS (DEVICE_TIME domain)
+      2. Apply gyroscope time offset + 0.5*Δt correction to get the true
+         measurement instant in DEVICE_TIME
+      3. Query pose at the corrected DEVICE_TIME timestamp
+      4. Convert corrected timestamp to TIME_CODE for CSV output
+         (enables cross-device comparability)
 
     Returns the number of samples written.
     """
     from projectaria_tools.core.sensor_data import TimeDomain
 
-    # Native IMU timestamps in DEVICE_TIME
-    timestamps_device_ns = rec.get_sensor_timestamps_device_time_ns(sensor_label)
+    # -------------------------------------------------------------------------
+    # 1. Get raw IMU timestamps (DEVICE_TIME domain, uncorrected)
+    # -------------------------------------------------------------------------
+    all_imu_data_raw = rec.get_sensor_data_with_device_time_ns(sensor_label)
 
-    logger.info(
-        f"  {device_tag}/{sensor_label}: "
-        f"{len(timestamps_device_ns)} samples -> {csv_path.name}"
-    )
+    if len(all_imu_data_raw) == 0:
+        logger.warning(f"  {device_tag}/{sensor_label}: no data found, skipping")
+        return 0
 
-    # For factory calibration: fetch once (static, not time-varying)
-    static_calib = None
-    if not use_online_calib:
+    # -------------------------------------------------------------------------
+    # 2. Compute time offset correction
+    #
+    #    According to Project Aria temporal alignment documentation:
+    #      â(t_Device) = ã(t_Device + dt_Device_Gyro + 0.5*Δt)
+    #
+    #    We use ONLY the gyroscope time offset because:
+    #    - Gyro motion is highly correlated with visual motion (better observable)
+    #    - Accelerometer time offset estimation is noisier and less reliable
+    #    - Both sensors share the same raw timestamp in VRS
+    # -------------------------------------------------------------------------
+
+    # Get calibration to extract gyro time offset
+    # For factory calib: use static (t_ns=None)
+    # For online calib: use first timestamp as reference (offset varies slowly)
+    if use_online_calib:
+        ref_calib = ndp.get_sensor_calibration(
+            device_tag,
+            sensor_label,
+            t_ns=int(all_imu_data_raw[0].capture_timestamp_ns),
+            time_domain=TimeDomain.DEVICE_TIME,
+        )
+        dt_gyro_sec = get_gyro_time_offset_sec(ref_calib)
+        dt_gyro_ns = int(dt_gyro_sec * 1e9)
+    else:
         static_calib = ndp.get_sensor_calibration(
             device_tag, sensor_label, t_ns=None
         )
+        dt_gyro_ns = 0
+
+    # Compute half sampling period (center of integration window)
+    # @todo retrieve perfect sampling period from VRS or Calib information
+    sampling_period_ns = retrieve_sampling_period_ns(None, [d.capture_timestamp_ns for d in all_imu_data_raw])
+    half_period_ns = sampling_period_ns // 2
+
+    # Total correction to apply
+    total_offset_ns = dt_gyro_ns + half_period_ns
+
+    logger.info(
+        f"  {device_tag}/{sensor_label}: "
+        f"{len(all_imu_data_raw)} samples -> {csv_path.name} "
+        f"(dt_gyro={dt_gyro_sec*1000:.3f}ms, Δt/2={half_period_ns/1e6:.3f}ms)"
+    )
+
+
+    # -------------------------------------------------------------------------
+    # 3. Export loop
+    # -------------------------------------------------------------------------
 
     vrs_dp = rec.vrs_dp
     n_written = 0
-
+    
     with open(csv_path, "w", newline="") as f:
         writer = csv.writer(f)
         writer.writerow(CSV_HEADER)
 
-        for t_device_ns in timestamps_device_ns:
-            t_device_ns = int(t_device_ns)
+        for imu_data in tqdm(all_imu_data_raw, desc=f"{device_tag}/{sensor_label}"):
+            t_raw_ns = int(imu_data.capture_timestamp_ns)
 
-            # -- Pose: T_world_sensor via DEVICE_TIME --
+            # Apply time offset correction
+            t_corrected_ns = t_raw_ns + total_offset_ns
+
+            # -- Pose: T_world_sensor at CORRECTED timestamp --
             T_world_sensor, _ = ndp.get_sensor_pose(
-                t_device_ns,
+                t_corrected_ns,
                 device_tag,
                 sensor_label,
                 time_domain=TimeDomain.DEVICE_TIME,
             )
 
-            # -- Calibration (biases) via DEVICE_TIME --
+            # -- Calibration (biases) --
             if use_online_calib:
                 calib = ndp.get_sensor_calibration(
                     device_tag,
                     sensor_label,
-                    t_ns=t_device_ns,
+                    t_ns=t_corrected_ns,
                     time_domain=TimeDomain.DEVICE_TIME,
                 )
             else:
-                calib = static_calib
+                # use the first online calibration because it seems that
+                # we have no other way to have an offline estimate of
+                # gyro/accel biases of the sensor (or I missed it)
+                calib = ref_calib
 
             gyro_bias = np.array(calib.get_gyro_model().get_bias())
             accel_bias = np.array(calib.get_accel_model().get_bias())
 
-            # -- Convert timestamp to TIME_CODE for CSV --
-            t_timecode_ns = vrs_dp.convert_from_device_time_to_timecode_ns(
-                t_device_ns
-            )
+            # -- Convert CORRECTED timestamp to TIME_CODE for CSV --
+            # This ensures cross-device comparability
+            t_timecode_ns = vrs_dp.convert_from_device_time_to_timecode_ns(t_corrected_ns)
 
             # -- Extract pose components --
-            xyz = T_world_sensor.translation()
-            # to_quat_and_translation() returns (quat_xyzw, translation)
-            quat_xyzw, _ = T_world_sensor.to_quat_and_translation()
+            xyz = T_world_sensor.translation()[0]
+            # to_quat_and_translation() returns [ quat_wxyz translation_xyz ] as a single array
+            # prefer rotation() that returns SOE which can then be used to get the quaternion
+            # SOE converts to hamilton convetion (wxyz)
+            quat_wxyz = T_world_sensor.rotation().to_quat()[0]
+
+            # import pdb
+            # breakpoint()
+
+            accel = imu_data.accel_msec2
+            gyro  = imu_data.gyro_radsec
 
             writer.writerow([
                 t_timecode_ns,
                 f"{xyz[0]:.8f}",
                 f"{xyz[1]:.8f}",
                 f"{xyz[2]:.8f}",
-                f"{quat_xyzw[0]:.8f}",
-                f"{quat_xyzw[1]:.8f}",
-                f"{quat_xyzw[2]:.8f}",
-                f"{quat_xyzw[3]:.8f}",
+
+                f"{quat_wxyz[0]:.8f}",
+                f"{quat_wxyz[1]:.8f}",
+                f"{quat_wxyz[2]:.8f}",
+                f"{quat_wxyz[3]:.8f}",
+
+                f"{accel[0]:.8f}",
+                f"{accel[1]:.8f}",
+                f"{accel[2]:.8f}",
+                f"{gyro[0]:.8f}",
+                f"{gyro[1]:.8f}",
+                f"{gyro[2]:.8f}",
+
                 f"{gyro_bias[0]:.10f}",
                 f"{gyro_bias[1]:.10f}",
                 f"{gyro_bias[2]:.10f}",
@@ -302,6 +421,94 @@ def _export_sensor_csv(
     return n_written
 
 
+def export_sequence(
+    sequence_dir: Path,
+    output_dir: Path,
+    use_online_calib: bool,
+    hide_loading_logs: bool,
+) -> dict:
+    """
+    Export all IMU trajectories for one sequence.
+
+    Returns dict with status and details for the report.
+    """
+    from nymeria.recording_data_provider import RecordingDataProvider
+    from nymeria.data_provider import NymeriaDataProvider
+
+    result = {
+        "status": "success",
+        "sequence": str(sequence_dir),
+        "devices": {},
+        "errors": [],
+    }
+
+    try:
+        # Create output subdirectory for this sequence
+        seq_output = output_dir / sequence_dir.name
+        seq_output.mkdir(parents=True, exist_ok=True)
+
+        # Initialize provider
+        with suppress_native_stderr():
+            # If no data were found, we already have a try/except clause
+            # to catch the exception and log the error
+            ndp = NymeriaDataProvider(
+                sequence_rootdir=sequence_dir,
+                load_head=True,
+                load_observer=True,
+                load_wrist=True,
+                load_body=False,  # Don't need body motion for IMU export
+                load_online_calib=use_online_calib,
+            )
+
+        # Export each device/sensor combination
+        for device_tag in DEVICE_TAGS:
+            try:
+                rec = ndp.get_recording(device_tag)
+            except ValueError:
+                # Recording not loaded (not available or disabled)
+                continue
+
+            if not rec.has_pose:
+                logger.warning(f"  {device_tag}: no trajectory, skipping")
+                continue
+
+            result["devices"][device_tag] = {}
+
+            for sensor_label in SENSOR_LABELS:
+                csv_name = f"{device_tag}_{sensor_label}.csv"
+                csv_path = seq_output / csv_name
+
+                try:
+                    n_samples = _export_sensor_csv(
+                        ndp=ndp,
+                        rec=rec,
+                        device_tag=device_tag,
+                        sensor_label=sensor_label,
+                        csv_path=csv_path,
+                        use_online_calib=use_online_calib,
+                    )
+                    result["devices"][device_tag][sensor_label] = {
+                        "samples": n_samples,
+                        "file": csv_name,
+                    }
+                except Exception as e:
+                    error_msg = f"{device_tag}/{sensor_label}: {e}\n{traceback.format_exc()}"
+                    logger.error(f"  {error_msg}")
+                    result["errors"].append(error_msg)
+                    result["devices"][device_tag][sensor_label] = {"error": str(e)}
+
+    except Exception as e:
+        result["status"] = "failed"
+        result["errors"].append(str(e))
+        logger.error(f"Sequence {sequence_dir.name} failed: {e}")
+        logger.debug(traceback.format_exc())
+
+    if result["errors"] and result["status"] == "success":
+        result["status"] = "partial"
+
+    return result
+
+
 # ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
@@ -310,226 +517,155 @@ def _export_sensor_csv(
 @click.command()
 @click.option(
     "-i",
-    "sequence_dir",
-    type=Path,
-    default=None,
-    help="Single sequence directory to process.",
+    "--input",
+    "input_path",
+    type=click.Path(exists=True, path_type=Path),
+    help="Single sequence directory to process",
 )
 @click.option(
     "-b",
+    "--batch",
     "batch_path",
-    type=Path,
-    default=None,
-    help="Batch mode: directory of sequences OR .txt file with one path per line.",
+    type=click.Path(exists=True, path_type=Path),
+    help="Batch mode: directory of sequences or .txt file with paths",
 )
 @click.option(
     "-o",
+    "--output",
     "output_dir",
-    type=Path,
+    type=click.Path(path_type=Path),
     required=True,
-    help="Output directory (created if needed).",
+    help="Output directory for CSV files",
 )
 @click.option(
     "-j",
-    "num_workers",
+    "--jobs",
+    default=1,
     type=int,
-    default=0,
-    help="Number of parallel workers for batch mode (0 or 1 = sequential).",
+    help="Number of parallel jobs (default: 1)",
 )
+# Use default True because the it seems that we cannot have access to
+# offline calibrated gyro/accel biases, so we need online calibration
 @click.option(
     "--use-online-calib",
     is_flag=True,
-    default=False,
-    help="Use online (time-varying) calibration instead of factory calibration.",
+    default=True,
+    help="Use online calibration instead of factory calibration",
 )
 @click.option(
     "--stop-on-error",
     is_flag=True,
     default=False,
-    help="Stop processing on first error (in sequential mode stops immediately; "
-    "in parallel mode waits for running tasks then stops).",
+    help="Stop processing on first error (default: continue)",
+)
+@click.option(
+    "--hide-loading-logs",
+    is_flag=True,
+    default=False,
+    help="Hide warnings and errors during dataset loading",
 )
 def main(
-    sequence_dir: Path | None,
+    input_path: Path | None,
     batch_path: Path | None,
     output_dir: Path,
-    num_workers: int,
+    jobs: int,
     use_online_calib: bool,
     stop_on_error: bool,
-) -> None:
-    """Export Nymeria IMU sensor poses and biases to CSV."""
+    hide_loading_logs: bool,
+):
+    """
+    Export Nymeria IMU trajectories to CSV files.
 
-    # Configure logger
+    Use -i for a single sequence or -b for batch processing.
+    """
+
     logger.remove()
     logger.add(
         sys.stdout,
         colorize=True,
-        format=(
-            "<level>{level: <7}</level> "
-            "<blue>{name}.py:</blue>"
-            "<green>{function}</green>"
-            "<yellow>:{line}</yellow> {message}"
-        ),
+        format="<level>{level: <7}</level> <light-blue>{name}.py:</light-blue><black>{function}</black><yellow>:{line}</yellow> {message}",
         level="INFO",
     )
 
-    # Validate mutual exclusivity
-    if sequence_dir is not None and batch_path is not None:
-        raise click.UsageError("Options -i and -b are mutually exclusive.")
-    if sequence_dir is None and batch_path is None:
-        raise click.UsageError("One of -i or -b is required.")
+    # Validate inputs
+    if input_path is None and batch_path is None:
+        raise click.UsageError("Must specify either -i (single) or -b (batch)")
+    if input_path is not None and batch_path is not None:
+        raise click.UsageError("Cannot specify both -i and -b")
 
-    # Build sequence list
-    if sequence_dir is not None:
-        if not sequence_dir.is_dir():
-            raise click.BadParameter(
-                f"{sequence_dir} is not a directory", param_hint="-i"
-            )
-        sequences = [sequence_dir]
+    # Determine sequences to process
+    if input_path is not None:
+        sequences = [input_path]
     else:
         sequences = discover_sequences(batch_path)
-        if not sequences:
-            logger.error("No sequences found.")
-            sys.exit(1)
-        logger.info(f"Discovered {len(sequences)} sequences")
 
-    # Prepare output
+    if not sequences:
+        logger.error("No sequences found to process")
+        sys.exit(1)
+
+    logger.info(f"Processing {len(sequences)} sequence(s)")
+    logger.info(f"Output directory: {output_dir}")
+    logger.info(f"Online calibration: {use_online_calib}")
+
+    # Setup output and report
     output_dir.mkdir(parents=True, exist_ok=True)
     report_path = output_dir / "report.json"
     report = load_report(report_path)
 
-    use_parallel = len(sequences) > 1 and num_workers > 1
+    # Process sequences
+    failed = 0
 
-    if use_parallel:
-        _run_parallel(
-            sequences,
-            output_dir,
-            use_online_calib,
-            stop_on_error,
-            num_workers,
-            report,
-            report_path,
-        )
+    if jobs == 1:
+        # Single-threaded
+        for seq in tqdm(sequences, desc="Sequences"):
+            logger.info(f"Processing: {seq.name}")
+            result = export_sequence(seq, output_dir, use_online_calib, hide_loading_logs=hide_loading_logs)
+            report["sequences"][seq.name] = result
+            save_report(report_path, report)
+
+            if result["status"] == "failed":
+                failed += 1
+                if stop_on_error:
+                    logger.error("Stopping due to --stop-on-error")
+                    break
     else:
-        _run_sequential(
-            sequences,
-            output_dir,
-            use_online_calib,
-            stop_on_error,
-            report,
-            report_path,
-        )
-
-    # Final save
-    save_report(report_path, report)
-    logger.info(f"Report saved to {report_path}")
-
-
-def _run_sequential(
-    sequences: list[Path],
-    output_dir: Path,
-    use_online_calib: bool,
-    stop_on_error: bool,
-    report: dict,
-    report_path: Path,
-) -> None:
-    """Process sequences one by one with a tqdm progress bar."""
-    for seq_dir in tqdm(sequences, desc="Sequences", unit="seq"):
-        seq_name = seq_dir.name
-        logger.info(f"Processing: {seq_name}")
-
-        try:
-            entry = process_sequence(seq_dir, output_dir, use_online_calib)
-        except Exception:
-            tb = traceback.format_exc()
-            logger.error(f"Unhandled error in {seq_name}:\n{tb}")
-            entry = {
-                "status": "error",
-                "error": tb,
-                "files": [],
-                "warnings": [],
+        # Multi-threaded
+        with ThreadPoolExecutor(max_workers=jobs) as executor:
+            futures = {
+                executor.submit(export_sequence, seq, output_dir, use_online_calib): seq
+                for seq in sequences
             }
 
-        report["sequences"][seq_name] = entry
-        save_report(report_path, report)
+            with tqdm(total=len(sequences), desc="Sequences") as pbar:
+                for future in as_completed(futures):
+                    seq = futures[future]
+                    try:
+                        result = future.result()
+                    except Exception as e:
+                        result = {
+                            "status": "failed",
+                            "sequence": str(seq),
+                            "errors": [str(e)],
+                        }
+                        logger.error(f"Sequence {seq.name} raised exception: {e}")
 
-        if entry["status"] == "error":
-            logger.error(
-                f"FAIL {seq_name}: {entry.get('error', 'unknown error')}"
-            )
-            if stop_on_error:
-                logger.error("--stop-on-error: aborting.")
-                sys.exit(1)
-        else:
-            n_files = len(entry["files"])
-            n_warn = len(entry["warnings"])
-            logger.info(f"OK   {seq_name}: {n_files} files, {n_warn} warnings")
+                    report["sequences"][seq.name] = result
+                    save_report(report_path, report)
 
+                    if result["status"] == "failed":
+                        failed += 1
+                        if stop_on_error:
+                            logger.error("Stopping due to --stop-on-error")
+                            executor.shutdown(wait=False, cancel_futures=True)
+                            break
 
-def _run_parallel(
-    sequences: list[Path],
-    output_dir: Path,
-    use_online_calib: bool,
-    stop_on_error: bool,
-    num_workers: int,
-    report: dict,
-    report_path: Path,
-) -> None:
-    """Process sequences in parallel with a tqdm progress bar."""
-    should_stop = False
+                    pbar.update(1)
 
-    with ThreadPoolExecutor(max_workers=num_workers) as executor:
-        future_to_seq = {
-            executor.submit(
-                process_sequence, seq_dir, output_dir, use_online_calib
-            ): seq_dir
-            for seq_dir in sequences
-        }
+    # Summary
+    logger.info(f"Completed: {len(sequences) - failed}/{len(sequences)} sequences")
+    logger.info(f"Report saved to: {report_path}")
 
-        with tqdm(total=len(sequences), desc="Sequences", unit="seq") as pbar:
-            for future in as_completed(future_to_seq):
-                seq_dir = future_to_seq[future]
-                seq_name = seq_dir.name
-
-                try:
-                    entry = future.result()
-                except Exception:
-                    tb = traceback.format_exc()
-                    logger.error(
-                        f"Unhandled error in {seq_name}:\n{tb}"
-                    )
-                    entry = {
-                        "status": "error",
-                        "error": tb,
-                        "files": [],
-                        "warnings": [],
-                    }
-
-                report["sequences"][seq_name] = entry
-                save_report(report_path, report)
-                pbar.update(1)
-
-                if entry["status"] == "error":
-                    logger.error(
-                        f"FAIL {seq_name}: "
-                        f"{entry.get('error', 'unknown error')}"
-                    )
-                    if stop_on_error:
-                        should_stop = True
-                        executor.shutdown(wait=True, cancel_futures=True)
-                        break
-                else:
-                    n_files = len(entry["files"])
-                    n_warn = len(entry["warnings"])
-                    logger.info(
-                        f"OK   {seq_name}: "
-                        f"{n_files} files, {n_warn} warnings"
-                    )
-
-    if should_stop:
-        logger.error(
-            "--stop-on-error: aborting after current tasks finished."
-        )
+    if failed > 0:
         sys.exit(1)
 
 

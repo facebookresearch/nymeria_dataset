@@ -393,7 +393,7 @@ class RecordingDataProvider(RecordingPathProvider):
 
     # ---- Sensor timestamps ----
 
-    def get_sensor_timestamps_device_time_ns(self, sensor_label: str) -> np.ndarray:
+    def get_sensor_data_with_device_time_ns(self, sensor_label: str) -> np.ndarray:
         """
         Get all native capture timestamps for a sensor stream from VRS.
 
@@ -420,12 +420,15 @@ class RecordingDataProvider(RecordingPathProvider):
         stream_id = self._vrs_dp.get_stream_id_from_label(sensor_label)
         n = self._vrs_dp.get_num_data(stream_id)
 
-        timestamps = np.empty(n, dtype=np.int64)
+        # timestamps = np.empty(n, dtype=np.int64)
+        all_imu_data = [ None ] * n
         for i in range(n):
             imu_data = self._vrs_dp.get_imu_data_by_index(stream_id, i)
-            timestamps[i] = imu_data.capture_timestamp_ns
+            # timestamps[i] = imu_data.capture_timestamp_ns
+            all_imu_data[i] = imu_data
 
-        return timestamps
+        # return timestamps, imu_data
+        return all_imu_data
 
     # ---- Point cloud ----
 
