@@ -57,33 +57,27 @@ import numpy as np
 from loguru import logger
 from tqdm import tqdm
 
-
 DEVICE_TAGS = ["head", "observer", "lwrist", "rwrist"]
 SENSOR_LABELS = ["imu-left", "imu-right"]
 
 CSV_HEADER = [
     "timestamp_ns",
-
     "x",
     "y",
     "z",
-    
     # Hamilton convention for quaternion
     "qw",
     "qx",
     "qy",
     "qz",
-
     # gyro in rad per sec
     "gyro_radsec_x",
     "gyro_radsec_y",
     "gyro_radsec_z",
-    
     # accel in meter per sec²
     "accel_msec2_x",
     "accel_msec2_y",
     "accel_msec2_z",
-
     # biases
     "bias_gyro_x",
     "bias_gyro_y",
@@ -203,7 +197,7 @@ def get_gyro_time_offset_sec(imu_calib) -> float:
     # to access gyro time offset ... so we try the expected way (currently documented)
     # first and then we let whatever Claude has done related to some doc he's read
 
-    # The originally pinned version 1.5.5, has seemingly no access to time offsets 
+    # The originally pinned version 1.5.5, has seemingly no access to time offsets
     # Seems that the correct version is this (using version 2.1.1)
     if hasattr(imu_calib, "get_time_offset_sec_device_gyro"):
         return imu_calib.get_time_offset_sec_device_gyro()
@@ -222,7 +216,7 @@ def get_gyro_time_offset_sec(imu_calib) -> float:
             return gyro_model.get_time_offset()
     except Exception:
         pass
-    
+
     # Fallback: no time offset correction
     return 0.0
 
@@ -313,14 +307,14 @@ def _export_sensor_csv(
         dt_gyro_sec = get_gyro_time_offset_sec(ref_calib)
         dt_gyro_ns = int(dt_gyro_sec * 1e9)
     else:
-        static_calib = ndp.get_sensor_calibration(
-            device_tag, sensor_label, t_ns=None
-        )
+        static_calib = ndp.get_sensor_calibration(device_tag, sensor_label, t_ns=None)
         dt_gyro_ns = 0
 
     # Compute half sampling period (center of integration window)
     # @todo retrieve perfect sampling period from VRS or Calib information
-    sampling_period_ns = retrieve_sampling_period_ns(None, [d.capture_timestamp_ns for d in all_imu_data_raw])
+    sampling_period_ns = retrieve_sampling_period_ns(
+        None, [d.capture_timestamp_ns for d in all_imu_data_raw]
+    )
     half_period_ns = sampling_period_ns // 2
 
     # Total correction to apply
@@ -329,9 +323,8 @@ def _export_sensor_csv(
     logger.info(
         f"  {device_tag}/{sensor_label}: "
         f"{len(all_imu_data_raw)} samples -> {csv_path.name} "
-        f"(dt_gyro={dt_gyro_sec*1000:.3f}ms, Δt/2={half_period_ns/1e6:.3f}ms)"
+        f"(dt_gyro={dt_gyro_sec * 1000:.3f}ms, Δt/2={half_period_ns / 1e6:.3f}ms)"
     )
-
 
     # -------------------------------------------------------------------------
     # 3. Export loop
@@ -339,12 +332,14 @@ def _export_sensor_csv(
 
     vrs_dp = rec.vrs_dp
     n_written = 0
-    
+
     with open(csv_path, "w", newline="") as f:
         writer = csv.writer(f)
         writer.writerow(CSV_HEADER)
 
-        for imu_data in tqdm(all_imu_data_raw, desc=f"{device_tag}/{sensor_label}", disable=quiet):
+        for imu_data in tqdm(
+            all_imu_data_raw, desc=f"{device_tag}/{sensor_label}", disable=quiet
+        ):
             t_raw_ns = int(imu_data.capture_timestamp_ns)
 
             # Apply time offset correction
@@ -377,7 +372,9 @@ def _export_sensor_csv(
 
             # -- Convert CORRECTED timestamp to TIME_CODE for CSV --
             # This ensures cross-device comparability
-            t_timecode_ns = vrs_dp.convert_from_device_time_to_timecode_ns(t_corrected_ns)
+            t_timecode_ns = vrs_dp.convert_from_device_time_to_timecode_ns(
+                t_corrected_ns
+            )
 
             # -- Extract pose components --
             xyz = T_world_sensor.translation()[0]
@@ -390,33 +387,32 @@ def _export_sensor_csv(
             # breakpoint()
 
             accel = imu_data.accel_msec2
-            gyro  = imu_data.gyro_radsec
+            gyro = imu_data.gyro_radsec
 
-            writer.writerow([
-                t_timecode_ns,
-                f"{xyz[0]:.8f}",
-                f"{xyz[1]:.8f}",
-                f"{xyz[2]:.8f}",
-
-                f"{quat_wxyz[0]:.8f}",
-                f"{quat_wxyz[1]:.8f}",
-                f"{quat_wxyz[2]:.8f}",
-                f"{quat_wxyz[3]:.8f}",
-
-                f"{accel[0]:.8f}",
-                f"{accel[1]:.8f}",
-                f"{accel[2]:.8f}",
-                f"{gyro[0]:.8f}",
-                f"{gyro[1]:.8f}",
-                f"{gyro[2]:.8f}",
-
-                f"{gyro_bias[0]:.10f}",
-                f"{gyro_bias[1]:.10f}",
-                f"{gyro_bias[2]:.10f}",
-                f"{accel_bias[0]:.10f}",
-                f"{accel_bias[1]:.10f}",
-                f"{accel_bias[2]:.10f}",
-            ])
+            writer.writerow(
+                [
+                    t_timecode_ns,
+                    f"{xyz[0]:.8f}",
+                    f"{xyz[1]:.8f}",
+                    f"{xyz[2]:.8f}",
+                    f"{quat_wxyz[0]:.8f}",
+                    f"{quat_wxyz[1]:.8f}",
+                    f"{quat_wxyz[2]:.8f}",
+                    f"{quat_wxyz[3]:.8f}",
+                    f"{accel[0]:.8f}",
+                    f"{accel[1]:.8f}",
+                    f"{accel[2]:.8f}",
+                    f"{gyro[0]:.8f}",
+                    f"{gyro[1]:.8f}",
+                    f"{gyro[2]:.8f}",
+                    f"{gyro_bias[0]:.10f}",
+                    f"{gyro_bias[1]:.10f}",
+                    f"{gyro_bias[2]:.10f}",
+                    f"{accel_bias[0]:.10f}",
+                    f"{accel_bias[1]:.10f}",
+                    f"{accel_bias[2]:.10f}",
+                ]
+            )
             n_written += 1
 
     return n_written
@@ -434,8 +430,8 @@ def export_sequence(
 
     Returns dict with status and details for the report.
     """
-    from nymeria.recording_data_provider import RecordingDataProvider
     from nymeria.data_provider import NymeriaDataProvider
+    from nymeria.recording_data_provider import RecordingDataProvider
 
     result = {
         "status": "success",
@@ -495,7 +491,9 @@ def export_sequence(
                         "file": csv_name,
                     }
                 except Exception as e:
-                    error_msg = f"{device_tag}/{sensor_label}: {e}\n{traceback.format_exc()}"
+                    error_msg = (
+                        f"{device_tag}/{sensor_label}: {e}\n{traceback.format_exc()}"
+                    )
                     logger.error(f"  {error_msg}")
                     result["errors"].append(error_msg)
                     result["devices"][device_tag][sensor_label] = {"error": str(e)}
@@ -567,6 +565,12 @@ def export_sequence(
     default=False,
     help="Hide warnings and errors during dataset loading",
 )
+@click.option(
+    "--skip-done",
+    is_flag=True,
+    default=False,
+    help="Skip sequences already marked as success in the report",
+)
 def main(
     input_path: Path | None,
     batch_path: Path | None,
@@ -575,6 +579,7 @@ def main(
     use_online_calib: bool,
     stop_on_error: bool,
     hide_loading_logs: bool,
+    skip_done: bool,
 ):
     """
     Export Nymeria IMU trajectories to CSV files.
@@ -606,14 +611,20 @@ def main(
         logger.error("No sequences found to process")
         sys.exit(1)
 
-    logger.info(f"Processing {len(sequences)} sequence(s)")
-    logger.info(f"Output directory: {output_dir}")
-    logger.info(f"Online calibration: {use_online_calib}")
-
     # Setup output and report
     output_dir.mkdir(parents=True, exist_ok=True)
     report_path = output_dir / "report.json"
     report = load_report(report_path)
+
+    if skip_done:
+        done = {name for name, r in report["sequences"].items() if r.get("status") == "success"}
+        before = len(sequences)
+        sequences = [s for s in sequences if s.name not in done]
+        logger.info(f"Skipping {before - len(sequences)} already completed sequence(s)")
+
+    logger.info(f"Processing {len(sequences)} sequence(s)")
+    logger.info(f"Output directory: {output_dir}")
+    logger.info(f"Online calibration: {use_online_calib}")
 
     # Process sequences
     failed = 0
@@ -622,7 +633,13 @@ def main(
         # Single-threaded
         for seq in tqdm(sequences, desc="Sequences"):
             logger.info(f"Processing: {seq.name}")
-            result = export_sequence(seq, output_dir, use_online_calib, hide_loading_logs=hide_loading_logs, quiet=False)
+            result = export_sequence(
+                seq,
+                output_dir,
+                use_online_calib,
+                hide_loading_logs=hide_loading_logs,
+                quiet=False,
+            )
             report["sequences"][seq.name] = result
             save_report(report_path, report)
 
@@ -635,7 +652,9 @@ def main(
         # Multi-threaded
         with ThreadPoolExecutor(max_workers=jobs) as executor:
             futures = {
-                executor.submit(export_sequence, seq, output_dir, use_online_calib, hide_loading_logs=hide_loading_logs, quiet=True): seq
+                executor.submit(
+                    export_sequence, seq, output_dir, use_online_calib, hide_loading_logs, True
+                ): seq
                 for seq in sequences
             }
 
