@@ -262,6 +262,7 @@ def _export_sensor_csv(
     sensor_label: str,
     csv_path: Path,
     use_online_calib: bool,
+    quiet: bool = False,
 ) -> int:
     """
     Export one CSV for one device/sensor pair.
@@ -343,7 +344,7 @@ def _export_sensor_csv(
         writer = csv.writer(f)
         writer.writerow(CSV_HEADER)
 
-        for imu_data in tqdm(all_imu_data_raw, desc=f"{device_tag}/{sensor_label}"):
+        for imu_data in tqdm(all_imu_data_raw, desc=f"{device_tag}/{sensor_label}", disable=quiet):
             t_raw_ns = int(imu_data.capture_timestamp_ns)
 
             # Apply time offset correction
@@ -426,6 +427,7 @@ def export_sequence(
     output_dir: Path,
     use_online_calib: bool,
     hide_loading_logs: bool,
+    quiet: bool = False,
 ) -> dict:
     """
     Export all IMU trajectories for one sequence.
@@ -486,6 +488,7 @@ def export_sequence(
                         sensor_label=sensor_label,
                         csv_path=csv_path,
                         use_online_calib=use_online_calib,
+                        quiet=quiet,
                     )
                     result["devices"][device_tag][sensor_label] = {
                         "samples": n_samples,
@@ -619,7 +622,7 @@ def main(
         # Single-threaded
         for seq in tqdm(sequences, desc="Sequences"):
             logger.info(f"Processing: {seq.name}")
-            result = export_sequence(seq, output_dir, use_online_calib, hide_loading_logs=hide_loading_logs)
+            result = export_sequence(seq, output_dir, use_online_calib, hide_loading_logs=hide_loading_logs, quiet=False)
             report["sequences"][seq.name] = result
             save_report(report_path, report)
 
@@ -632,7 +635,7 @@ def main(
         # Multi-threaded
         with ThreadPoolExecutor(max_workers=jobs) as executor:
             futures = {
-                executor.submit(export_sequence, seq, output_dir, use_online_calib): seq
+                executor.submit(export_sequence, seq, output_dir, use_online_calib, hide_loading_logs=hide_loading_logs, quiet=True): seq
                 for seq in sequences
             }
 
