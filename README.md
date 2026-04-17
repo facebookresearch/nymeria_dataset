@@ -1,4 +1,4 @@
-# Nymeria Dataset
+# Nymeria and NymeriaPlus Dataset
 
 [[Project Page]](https://www.projectaria.com/datasets/nymeria/)
 [[Data Explorer]](https://explorer.projectaria.com/nymeria)
@@ -18,6 +18,17 @@ downloading and visualizing the dataset.
   <img src=".github/teaser1.gif" width="49%" alt="Nymeria dataset teaser with 100 random samples" />
   <img src=".github/teaser2.gif" width="49%" alt="Nymeria dataset highlight statistics" />
 </p>
+
+## 🔥 What's New
+We are excited to announce that we have upgraded Nymeria dataset into **[NymeriaPlus](https://arxiv.org/pdf/2603.18496v1)** 
+with additional annnotations and data.
+NymeriaPlus features: (1) improved human motion on both [MHR](https://github.com/facebookresearch/MHR) 
+and [SMPL](https://smpl.is.tue.mpg.de/) formats; (2) dense 3D and 2D bounding box annotations for indoor objects and structured elements; 
+(3) instance-level 3D object reconstruction from [ShapeR](https://github.com/facebookresearch/ShapeR); 
+and (4) additional modalities such as basemap recordings, wristband videos, headset audio and etc. 
+Data will be released soon in the coming few weeks. Stay tuned!
+<br>
+<br>
 
 ## Getting Started
 
@@ -128,15 +139,28 @@ refer to the [LICENSE](./LICENSE) file included in this repository.
 
 ### Attribution
 
-When using the dataset and code, please attribute it as follows:
+When using the Nymeria dataset and code, please attribute it as follows:
 
 ```
-@inproceedings{ma24eccv,
+@inproceedings{nymeria24,
       title={Nymeria: A Massive Collection of Multimodal Egocentric Daily Motion in the Wild},
       author={Lingni Ma and Yuting Ye and Fangzhou Hong and Vladimir Guzov and Yifeng Jiang and Rowan Postyeni and Luis Pesqueira and Alexander Gamino and Vijay Baiyya and Hyo Jin Kim and Kevin Bailey and David Soriano Fosas and C. Karen Liu and Ziwei Liu and Jakob Engel and Renzo De Nardi and Richard Newcombe},
       booktitle={the 18th European Conference on Computer Vision (ECCV)},
       year={2024},
       url={https://arxiv.org/abs/2406.09905},
+}
+```
+
+When using the NymeriaPlus dataset, please also attribute the following:
+```
+@misc{nymeriaplus26,
+      title={NymeriaPlus: Enriching Nymeria Dataset with Additional Annotations and Data}, 
+      author={Daniel DeTone and Federica Bogo and Eric-Tuan Le and Duncan Frost and Julian Straub and Yawar Siddiqui and Yuting Ye and Jakob Engel and Richard Newcombe and Lingni Ma},
+      year={2026},
+      eprint={2603.18496},
+      archivePrefix={arXiv},
+      primaryClass={cs.CV},
+      url={https://arxiv.org/abs/2603.18496}, 
 }
 ```
 
