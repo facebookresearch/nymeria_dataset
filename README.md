@@ -20,14 +20,17 @@ downloading and visualizing the dataset.
 </p>
 
 ## 🔥 What's New
-We are excited to announce that we have upgraded Nymeria dataset into **[NymeriaPlus](https://arxiv.org/pdf/2603.18496v1)** 
+We are excited to announce that we have upgraded Nymeria dataset into **[NymeriaPlus](https://arxiv.org/pdf/2603.18496v1)**
 with additional annnotations and data.
-NymeriaPlus features: (1) improved human motion on both [MHR](https://github.com/facebookresearch/MHR) 
-and [SMPL](https://smpl.is.tue.mpg.de/) formats; (2) dense 3D and 2D bounding box annotations for indoor objects and structured elements; 
-(3) instance-level 3D object reconstruction from [ShapeR](https://github.com/facebookresearch/ShapeR); 
-and (4) additional modalities such as basemap recordings, wristband videos, headset audio and etc. 
+NymeriaPlus features: (1) improved human motion on both [MHR](https://github.com/facebookresearch/MHR)
+and [SMPL](https://smpl.is.tue.mpg.de/) formats; (2) dense 3D and 2D bounding box annotations for indoor objects and structured elements;
+(3) instance-level 3D object reconstruction from [ShapeR](https://github.com/facebookresearch/ShapeR);
+and (4) additional modalities such as basemap recordings, wristband videos, headset audio and etc.
 Data will be released soon in the coming few weeks. Stay tuned!
-<br>
+
+<p align="center">
+  <img src=".github/nymeria_plus_teaser.jpg" width="98%" alt="NymeriaPlus teaser showing additional annotations and modalities" />
+</p>
 <br>
 
 ## Getting Started
@@ -154,13 +157,13 @@ When using the Nymeria dataset and code, please attribute it as follows:
 When using the NymeriaPlus dataset, please also attribute the following:
 ```
 @misc{nymeriaplus26,
-      title={NymeriaPlus: Enriching Nymeria Dataset with Additional Annotations and Data}, 
+      title={NymeriaPlus: Enriching Nymeria Dataset with Additional Annotations and Data},
       author={Daniel DeTone and Federica Bogo and Eric-Tuan Le and Duncan Frost and Julian Straub and Yawar Siddiqui and Yuting Ye and Jakob Engel and Richard Newcombe and Lingni Ma},
       year={2026},
       eprint={2603.18496},
       archivePrefix={arXiv},
       primaryClass={cs.CV},
-      url={https://arxiv.org/abs/2603.18496}, 
+      url={https://arxiv.org/abs/2603.18496},
 }
 ```
 
