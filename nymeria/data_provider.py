@@ -169,10 +169,16 @@ class NymeriaDataProvider(NymeriaDataProviderConfig):
             t_end = t1 * 1e3
 
         for rec in self.get_existing_recordings():
+            if not rec.has_vrs:
+                continue
             t0, t1 = rec.get_global_timespan_ns()
             t_start = t_start if t_start > t0 else t0
             t_end = t_end if t_end is not None and t_end < t1 else t1
 
+        if t_end is None:
+            raise RuntimeError(
+                "cannot compute timespan: no recording with VRS and no body timestamps"
+            )
         t_start += ignore_ns
         t_end -= ignore_ns
         assert t_start < t_end, f"invalid time span {t_start= }us, {t_end= }us"
@@ -186,7 +192,7 @@ class NymeriaDataProvider(NymeriaDataProviderConfig):
     def get_synced_rgb_videos(self, t_ns_global: int) -> dict[str, any]:
         data = {}
         for rec in [self.recording_head, self.recording_observer]:
-            if rec is None and not rec.has_rgb:
+            if rec is None or not rec.has_rgb:
                 continue
 
             result = rec.get_rgb_image(t_ns_global, time_domain=TimeDomain.TIME_CODE)
@@ -228,7 +234,7 @@ class NymeriaDataProvider(NymeriaDataProviderConfig):
         data = {}
         T_Wd_Hd = None
         for rec in self.get_existing_recordings():
-            if rec is None or not rec.has_pose:
+            if not rec.has_vrs or not rec.has_pose:
                 continue
 
             pose: ClosedLoopTrajectoryPose = None
