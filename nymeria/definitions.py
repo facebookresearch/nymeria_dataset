@@ -17,7 +17,9 @@ Files might be missing if not downloaded.
   │   ├── xdata_blueman.glb
   │   ├── xdata.healthcheck
   │   ├── xdata.mvnx
-  │   └── xdata.npz
+  │   ├── xdata.npz
+  │   ├── xdata_mhr.glb
+  │   └── xdata_smpl_neutral.npz
   ├── narration
   │   ├── activity_summarization.csv
   │   ├── atomic_action.csv
@@ -56,6 +58,12 @@ Files might be missing if not downloaded.
 NYMERIA_VERSION: str = "v0.0"
 
 
+class BodyModel(Enum):
+    MOMENTUM = "momentum"
+    SMPL = "smpl"
+    MHR = "mhr"
+
+
 @dataclass(frozen=True)
 class MetaFiles:
     license: str = "LICENSE"
@@ -83,6 +91,16 @@ class BodyFiles:
     xsens_processed: str = f"{Subpaths.body}/xdata.npz"
     xsens_raw: str = f"{Subpaths.body}/xdata.mvnx"
     momentum_model: str = f"{Subpaths.body}/xdata_blueman.glb"
+
+
+@dataclass(frozen=True)
+class SmplFiles:
+    smpl_neutral: str = f"{Subpaths.body}/xdata_smpl_neutral.npz"
+
+
+@dataclass(frozen=True)
+class MhrFiles:
+    mhr_model: str = f"{Subpaths.body}/xdata_mhr.glb"
 
 
 @dataclass(frozen=True)
@@ -124,6 +142,8 @@ class DataGroups(Enum):
     metadata_json = Subpaths.metadata_json
 
     body_motion = Subpaths.body
+    smpl_motion = SmplFiles.smpl_neutral
+    mhr_motion = MhrFiles.mhr_model
 
     recording_head = Subpaths.recording_head
     recording_head_data_data_vrs = f"{Subpaths.recording_head}/{VrsFiles.data}"
