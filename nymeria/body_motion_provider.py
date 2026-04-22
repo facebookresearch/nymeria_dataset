@@ -8,7 +8,6 @@ from pathlib import Path
 
 import numpy as np
 import pymomentum as pym
-import torch
 from loguru import logger
 from nymeria.xsens_constants import XSensConstants
 from projectaria_tools.core.sophus import SE3
@@ -21,7 +20,7 @@ class BodyDataProvider:
     _tcorrect_tolerance: int = 10_000  # 10ms
 
     # coordinates transform between momentum and xsens
-    _A_Wx_Wm = torch.tensor([0.01, 0, 0, 0, 0, -0.01, 0, 0.01, 0]).reshape([3, 3])
+    _A_Wx_Wm = np.array([[0.01, 0, 0], [0, 0, -0.01], [0, 0.01, 0]], dtype=np.float64)
 
     def __init__(self, npzfile: str, glbfile: str) -> None:
         if not Path(npzfile).is_file():
@@ -172,17 +171,15 @@ class BodyDataProvider:
 
         # get Momentum posed mesh vertices
         if self.character is not None:
-            motion = torch.tensor(self.motion[idx])
-            skel_state: torch.Tensor = pym.geometry.model_parameters_to_skeleton_state(
+            motion = self.motion[idx]
+            skel_state = pym.geometry.model_parameters_to_skeleton_state(
                 self.character, motion
             )
-            skin_momentum: torch.Tensor = self.character.skin_points(skel_state)
+            skin_momentum = np.asarray(self.character.skin_points(skel_state))
 
             if T_W_Wx is not None:
-                t_W_Wx = (
-                    torch.tensor(T_W_Wx.translation()).to(torch.float32).reshape([3, 1])
-                )
-                R_W_Wx = torch.tensor(T_W_Wx.rotation().to_matrix()).to(torch.float32)
+                t_W_Wx = T_W_Wx.translation().reshape([3, 1])
+                R_W_Wx = T_W_Wx.rotation().to_matrix()
 
                 R_W_Wm = R_W_Wx @ self._A_Wx_Wm
                 skin_momentum = (R_W_Wm @ skin_momentum.T + t_W_Wx).T
