@@ -3,15 +3,19 @@ channels:
   - defaults
   - conda-forge
 dependencies:
-  - python=3.10
+  - python>=3.11,<3.13
   - numpy
   - pillow
   - click
   - requests
   - pymomentum>=0.1.33
+  # Optional body models — comment out if not needed
+  - smplx
+  - scipy  # required by smplx
+  - mhr
   - tqdm
   - pip
   - pip:
     - loguru
-    - projectaria-tools==1.5.5
+    - projectaria-tools>=1.5.5
     - -e .

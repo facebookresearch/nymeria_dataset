@@ -37,13 +37,39 @@ Data will be released soon in the coming few weeks. Stay tuned!
 
 ### Installation
 
-Run the following commands to create a conda environment `pymeria` with this
-repository installed by pip.
+Clone the repository:
 
 ```
-   git clone git@github.com:facebookresearch/nymeria_dataset.git
-   cd nymeria_dataset
-   conda env create -f environment.yml
+git clone git@github.com:facebookresearch/nymeria_dataset.git
+cd nymeria_dataset
+```
+
+#### Option A: Using conda
+
+```
+conda env create -f environment.yml
+conda activate pymeria
+```
+
+#### Option B: Using pixi
+
+[Pixi](https://pixi.sh) manages both conda and pip dependencies without
+requiring a separate conda installation.
+
+```bash
+# Install the environment (reads pixi.toml)
+pixi install
+```
+
+Use `pixi run` to execute commands inside the environment:
+
+```bash
+pixi run python viewer.py -i <nymeria_sequence_path> [-s]
+pixi run python download.py -i <urls.json> -o <output_path>
+
+# Or use the predefined tasks
+pixi run view -- -i <nymeria_sequence_path> -s
+pixi run download -- -i <urls.json> -o <output_path>
 ```
 
 ### Download dataset
@@ -81,10 +107,12 @@ provide [download.py](./download.py) as an example script to parses the JSON
 file and download data into formatted directories. Run the script as follows.
 
 ```
+# With conda
 conda activate pymeria
-cd nymeria_dataset
-
 python download.py -i <nymeria_download_urls.json> -o <output_path> [-k <partial_matching_key>]
+
+# With pixi
+pixi run python download.py -i <nymeria_download_urls.json> -o <output_path> [-k <partial_matching_key>]
 ```
 
 The downloading script will produce a `download_summary.json` under the `<output_path>`. To customize the data groups to be downloaded, modify the function
@@ -120,13 +148,36 @@ class implements the following functions
 - Compute alignment to register body motion into the same world coordinates of
   Aria devices.
 
-To visualize a sequence, run the viewer as follows. Please download all modalities for one sequence, to ensure the code runs as expected.
+To visualize a sequence, run the viewer as follows. Please download all
+modalities for one sequence, to ensure the code runs as expected.
 
 ```
+# With conda
+conda activate pymeria
 python viewer.py -i <nymeria_sequence_path> [-s]
+
+# With pixi
+pixi run python viewer.py -i <nymeria_sequence_path> [-s]
 ```
 
-The following two figures shows how the visualizer looks like. The 3D view renders body motion, point clouds and device trajectories. The 2D view renders synchronized RGB video from the participants Aria glasses and the observer Aria glasses. The code uses [rerun](https://rerun.io/) for rendering. You can toggle the viewer to show different modalities, and configure it by `NymeriaViewerConfig`.
+#### Alternative body models
+
+In addition to the default Momentum body mesh, the viewer supports two
+alternative body models: **SMPL** and **MHR** (Momentum Human Rig).
+
+**SMPL** requires the `smplx` package (installed by default via conda/pixi files) and a SMPL model `.pkl` file (download SMPL model files from https://smpl.is.tue.mpg.de).
+
+```
+python viewer.py -i <sequence_path> --body-model smpl --smpl-model-path <path_to_smpl_model.pkl>
+```
+
+**MHR** requires the `mhr` package (installed by default via conda/pixi files).
+
+```
+python viewer.py -i <sequence_path> --body-model mhr
+```
+
+The following two figures show how the visualizer looks like. The 3D view renders body motion, point clouds and device trajectories. The 2D view renders synchronized RGB video from the participants Aria glasses and the observer Aria glasses. The code uses [rerun](https://rerun.io/) for rendering. You can toggle the viewer to show different modalities, and configure it by `NymeriaViewerConfig`.
 <p align="center">
   <img src=".github/viewer-skeleton.png" width="49%" alt="Nymeria sequence viewer teaser1" />
   <img src=".github/viewer-momentum.png" width="49%" alt="Nymeria sequence viewer teaser2" />
