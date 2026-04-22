@@ -22,7 +22,9 @@ class SmplDataProvider:
     """Data provider for SMPL body model parameters.
 
     Loads per-frame SMPL parameters from an .npz file and a SMPL model
-    from a .pkl file.
+    from a .pkl file.  Vertices returned by ``get_posed_skin`` are
+    in the viewer's XSens convention (Z-up, meters) after applying an
+    axis-swap rotation from the SMPL/Momentum convention (Y-up, meters).
 
     The npz file is expected to contain the following keys:
         betas        (num_frames, 10)
@@ -31,6 +33,12 @@ class SmplDataProvider:
         transl       (num_frames, 3)
         timestamps   (num_frames,)
     """
+
+    # Rotation from Momentum/SMPL convention (Y-up) to XSens/viewer convention (Z-up).
+    # No scaling: SMPL vertices are already in meters.
+    _R_Wx_Wm: np.ndarray = np.array(
+        [[1, 0, 0], [0, 0, -1], [0, 1, 0]], dtype=np.float64
+    )
 
     def __init__(self, npzfile: str, model_path: str) -> None:
         if not _HAS_SMPLX:
@@ -78,8 +86,8 @@ class SmplDataProvider:
             frame_idx: Zero-based frame index.
 
         Returns:
-            Vertices as a numpy array of shape (N, 3) in Aria world space
-            (meters).
+            Vertices as a numpy array of shape (N, 3) in XSens convention
+            (Z-up, meters).
         """
         betas = torch.tensor(self.betas[frame_idx : frame_idx + 1], dtype=torch.float32)
         body_pose = torch.tensor(
@@ -101,7 +109,7 @@ class SmplDataProvider:
             )
 
         vertices: np.ndarray = output.vertices.squeeze(0).cpu().numpy()
-        return vertices
+        return (self._R_Wx_Wm @ vertices.T).T
 
 
 def create_smpl_data_provider(

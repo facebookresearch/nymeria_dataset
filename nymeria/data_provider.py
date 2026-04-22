@@ -254,11 +254,11 @@ class NymeriaDataProvider(NymeriaDataProviderConfig):
                     if skin is not None:
                         data["momentum"] = skin
             elif self.body_model == BodyModel.SMPL:
-                # SMPL vertices are already in Aria world space
+                # SMPL provider returns vertices in XSens convention (Z-up, meters)
                 frame_idx = self._get_frame_idx(t_ns_global)
                 data["smpl"] = self.body_dp.get_posed_skin(frame_idx)
             elif self.body_model == BodyModel.MHR:
-                # MHR vertices are already in Aria world space
+                # MHR provider returns vertices in XSens convention (Z-up, meters)
                 frame_idx = self._get_frame_idx(t_ns_global)
                 data["mhr"] = self.body_dp.get_posed_skin(frame_idx)
         return data

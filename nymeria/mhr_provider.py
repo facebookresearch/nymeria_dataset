@@ -15,11 +15,15 @@ from pymomentum.geometry import Character, Mesh
 class MhrDataProvider:
     """Data provider for MHR (Momentum Human Rig) body mesh stored in GLB files.
 
-    MHR vertices are in Aria world space but in centimeters.
+    MHR vertices are in Momentum convention (Y-up, centimeters).
+    ``get_posed_skin`` converts them to XSens/viewer convention (Z-up, meters).
     Timestamps are already synchronized with Aria -- direct frame index access.
     """
 
-    _CM_TO_M: float = 0.01
+    # Full Momentum→XSens transform: axis swap (Y-up → Z-up) + cm→m scaling.
+    _A_Wx_Wm: np.ndarray = np.array(
+        [[0.01, 0, 0], [0, 0, -0.01], [0, 0.01, 0]], dtype=np.float64
+    )
 
     def __init__(self, glbfile: str) -> None:
         logger.info(f"loading MHR from {glbfile=}")
@@ -44,15 +48,16 @@ class MhrDataProvider:
             frame_idx: Frame index into the motion sequence.
 
         Returns:
-            Vertex positions as an (N, 3) numpy array in meters.
+            Vertex positions as an (N, 3) numpy array in XSens convention
+            (Z-up, meters).
         """
         motion = self.motion[frame_idx]
         skel_state = pym.geometry.model_parameters_to_skeleton_state(
             self.character, motion
         )
         skin = self.character.skin_points(skel_state)
-        vertices: np.ndarray = np.asarray(skin) * self._CM_TO_M
-        return vertices
+        vertices: np.ndarray = np.asarray(skin)
+        return (self._A_Wx_Wm @ vertices.T).T
 
 
 def create_mhr_data_provider(glbfile: str) -> MhrDataProvider | None:
