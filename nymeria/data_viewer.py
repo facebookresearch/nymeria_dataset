@@ -45,6 +45,8 @@ class NymeriaViewer(ViewerConfig):
         "recording_observer": [61, 0, 118],
         "pointcloud": [128, 128, 128, 128],
         "momentum": [218, 234, 134],
+        "smpl": [134, 218, 234],
+        "mhr": [234, 134, 218],
     }
     color_skeleton = np.array(
         [
@@ -202,6 +204,40 @@ class NymeriaViewer(ViewerConfig):
                 else:
                     faces = nymeria_dp.body_dp.momentum_template_mesh.faces
                     normals = nymeria_dp.body_dp.momentum_template_mesh.normals
+                    rr.log(
+                        ep,
+                        rr.Mesh3D(
+                            triangle_indices=faces,
+                            vertex_positions=val,
+                            vertex_normals=normals,
+                            vertex_colors=self.palette.get(tag),
+                        ),
+                    )
+                    self._init_mesh = True
+                self._epaths_3d.add(ep)
+            if tag == "smpl":
+                ep = f"world/body/{tag}_mesh"
+                if self._init_mesh:
+                    rr.log(ep, rr.Mesh3D.from_fields(vertex_positions=val))
+                else:
+                    faces = nymeria_dp.body_dp.faces
+                    rr.log(
+                        ep,
+                        rr.Mesh3D(
+                            triangle_indices=faces,
+                            vertex_positions=val,
+                            vertex_colors=self.palette.get(tag),
+                        ),
+                    )
+                    self._init_mesh = True
+                self._epaths_3d.add(ep)
+            if tag == "mhr":
+                ep = f"world/body/{tag}_mesh"
+                if self._init_mesh:
+                    rr.log(ep, rr.Mesh3D.from_fields(vertex_positions=val))
+                else:
+                    faces = nymeria_dp.body_dp.template_mesh.faces
+                    normals = nymeria_dp.body_dp.template_mesh.normals
                     rr.log(
                         ep,
                         rr.Mesh3D(
