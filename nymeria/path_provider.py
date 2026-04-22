@@ -7,7 +7,14 @@
 from dataclasses import fields
 from pathlib import Path
 
-from nymeria.definitions import BodyFiles, MetaFiles, Subpaths, TextFiles
+from nymeria.definitions import (
+    BodyFiles,
+    MetaFiles,
+    MhrFiles,
+    SmplFiles,
+    Subpaths,
+    TextFiles,
+)
 
 
 class SequencePathProvider:
@@ -36,6 +43,18 @@ class SequencePathProvider:
             **{
                 f.name: str(rootdir / getattr(TextFiles, f.name))
                 for f in fields(TextFiles)
+            }
+        )
+        self.smpl_paths = SmplFiles(
+            **{
+                f.name: str(rootdir / getattr(SmplFiles, f.name))
+                for f in fields(SmplFiles)
+            }
+        )
+        self.mhr_paths = MhrFiles(
+            **{
+                f.name: str(rootdir / getattr(MhrFiles, f.name))
+                for f in fields(MhrFiles)
             }
         )
 
