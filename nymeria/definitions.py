@@ -10,8 +10,8 @@ from enum import Enum
 
 """
 Each sequence folder follows the following structure.
-Files might be missing if not downloaded. 
-  ├── LICENSE 
+Files might be missing if not downloaded.
+  ├── LICENSE
   ├── metadata.json
   ├── body
   │   ├── xdata_blueman.glb
@@ -101,6 +101,11 @@ class SmplFiles:
 @dataclass(frozen=True)
 class MhrFiles:
     mhr_model: str = f"{Subpaths.body}/xdata_mhr.glb"
+
+
+@dataclass(frozen=True)
+class BboxFiles:
+    scene_dir: str = "scene"
 
 
 @dataclass(frozen=True)

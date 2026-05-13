@@ -10,6 +10,7 @@ from typing import Union
 
 import numpy as np
 from loguru import logger
+from nymeria.bbox_provider import create_bbox_data_provider
 from nymeria.body_motion_provider import BodyDataProvider, create_body_data_provider
 from nymeria.definitions import BodyModel
 from nymeria.handeye import HandEyeSolver
@@ -45,6 +46,7 @@ class NymeriaDataProviderConfig:
     load_head: bool = True
     load_observer: bool = True
     load_wrist: bool = True
+    load_bbox: bool = True
     body_model: Union[BodyModel, None] = BodyModel.MOMENTUM
 
     # Path to the SMPL model .pkl file (required when body_model == BodyModel.SMPL).
@@ -131,6 +133,13 @@ class NymeriaDataProvider(NymeriaDataProviderConfig):
                     f"Check that {seq_pd.mhr_paths.mhr_model} exists."
                 )
         # else: body_model is None, body_dp stays None
+
+        # create data provider for 3D bounding boxes
+        self.bbox_dp = (
+            create_bbox_data_provider(scene_dir=seq_pd.bbox_paths.scene_dir)
+            if self.load_bbox
+            else None
+        )
 
         if self.body_dp is None and len(self.get_existing_recordings()) == 0:
             raise RuntimeError(
@@ -267,6 +276,15 @@ class NymeriaDataProvider(NymeriaDataProviderConfig):
                 # MHR provider returns vertices in XSens convention (Z-up, meters)
                 frame_idx = self._get_frame_idx(t_ns_global)
                 data["mhr"] = self.body_dp.get_posed_skin(frame_idx)
+
+        # Add bounding boxes if available
+        if self.bbox_dp is not None:
+            t_us = t_ns_global / 1e3
+            bbox_edges, bbox_info = self.bbox_dp.get_bboxes_at_timestamp(t_us)
+            if bbox_edges is not None:
+                data["bbox_edges"] = bbox_edges
+                data["bbox_info"] = bbox_info
+
         return data
 
     def _get_frame_idx(self, t_ns_global: int) -> int:

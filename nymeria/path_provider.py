@@ -8,6 +8,7 @@ from dataclasses import fields
 from pathlib import Path
 
 from nymeria.definitions import (
+    BboxFiles,
     BodyFiles,
     MetaFiles,
     MhrFiles,
@@ -37,6 +38,12 @@ class SequencePathProvider:
             **{
                 f.name: str(rootdir / getattr(BodyFiles, f.name))
                 for f in fields(BodyFiles)
+            }
+        )
+        self.bbox_paths = BboxFiles(
+            **{
+                f.name: str(rootdir / getattr(BboxFiles, f.name))
+                for f in fields(BboxFiles)
             }
         )
         self.narration_paths = TextFiles(

@@ -47,6 +47,7 @@ class NymeriaViewer(ViewerConfig):
         "momentum": [218, 234, 134],
         "smpl": [134, 218, 234],
         "mhr": [234, 134, 218],
+        "bbox": [255, 165, 0],  # Default orange for bboxes
     }
     color_skeleton = np.array(
         [
@@ -250,8 +251,49 @@ class NymeriaViewer(ViewerConfig):
                     self._init_mesh = True
                 self._epaths_3d.add(ep)
 
+            if tag == "bbox_edges":
+                # Render 3D bounding boxes
+                bbox_info = poses.get("bbox_info")
+                if bbox_info is not None:
+                    self.__log_bboxes(val, bbox_info)
+
             if tag == "recording_head":
                 self._T_mv = val.transform_world_device
+
+    def __log_bboxes(self, bbox_edges: np.ndarray, bbox_info: dict) -> None:
+        """
+        Log 3D bounding boxes to rerun.
+
+        Args:
+            bbox_edges: (M, 12, 2, 3) array of edge lines for M boxes
+            bbox_info: dict with labels, colors, and metadata
+        """
+        num_boxes = bbox_info["num_boxes"]
+        labels = bbox_info["labels"]
+        colors = bbox_info["colors"]
+
+        for box_idx in range(num_boxes):
+            # Get edges for this box (12 edges, each with 2 points)
+            edges = bbox_edges[box_idx]  # (12, 2, 3)
+
+            # Create entity path for this bbox
+            label = labels[box_idx]
+            ep = f"world/bbox/{label}"
+
+            # Get color for this box
+            color = colors[box_idx].tolist()
+
+            # Log as LineStrips3D (each edge is a separate line strip)
+            rr.log(
+                ep,
+                rr.LineStrips3D(
+                    edges,
+                    colors=color,
+                    radii=self.line_radii,
+                ),
+                static=False,
+            )
+            self._epaths_3d.add(ep)
 
     def __set_viewpoint(self, add_rotation: bool = False):
         if self._T_mv is None:
