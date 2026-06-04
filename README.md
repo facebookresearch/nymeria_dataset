@@ -88,6 +88,72 @@ conda activate nymeriaplus
 python -m pip install -r requirements-conda-pip.txt
 ```
 
+## Running the viewer
+
+The `nymeriaplus-viewer` CLI loads a sequence, synchronizes its streams, and
+opens an interactive viewer. It is defined in
+[`nymeriaplus/cli/viewer.py`](./nymeriaplus/cli/viewer.py) and registered as a
+console script in `pyproject.toml`.
+
+The viewer supports loading the following modalities: RGB video streams of the
+participant's and the observer's headset; device trajectories of the
+participant's headset/wristbands and the observer's headset; semi-dense point
+cloud from the participant's headset; skeleton motion from XSens/MHR/SMPL,
+skinned mesh from MHR/SMPL; 3D object bounding boxes and the estimated visible
+2DBB projected onto the RGB cameras; instance-level object mesh reconstruction.
+The viewer performs device synchronization and tries to load all available
+modalities found for the input sequence. Missing modalities will be silently
+skipped. The GUI panel supports toggling show/hide per modality. Follow the
+instructions below to run the viewer.
+
+With the `uv` install:
+
+```bash
+uv run nymeriaplus-viewer -i /path/to/nymeriaplus/sequence \
+  [--smpl-model-path PATH] [--target-fps FLOAT] [--ui-scale FLOAT]
+
+# equivalent invocations
+uv run python -m nymeriaplus.cli.viewer -i /path/to/sequence
+uv run python nymeriaplus/cli/viewer.py -i /path/to/sequence
+
+# or activate the environment first
+source .venv/bin/activate
+python nymeriaplus/cli/viewer.py -i /path/to/sequence
+```
+
+With the conda install:
+
+```bash
+conda activate nymeriaplus
+nymeriaplus-viewer -i /path/to/nymeriaplus/sequence
+```
+
+Viewer options:
+
+- `-i PATH` (required): NymeriaPlus sequence root directory.
+- `--smpl-model-path PATH`: path to a SMPL `.pkl` model file. Required to
+  visualize the SMPL mesh. To enable this feature, install the `smplx` package
+  first via `uv sync --extra smpl` and download the SMPL model files from
+  <https://smpl.is.tue.mpg.de/>. NymeriaPlus resolves all human motion using
+  the SMPL neutral model.
+- `--target-fps FLOAT`: synchronization target frame rate (default: `30.0`).
+- `--ui-scale FLOAT`: override the ImGui UI scale (range `0.25`–`4.0`). By
+  default the viewer uses the window content scale.
+
+Example with the SMPL mesh enabled:
+
+```bash
+uv run nymeriaplus-viewer \
+  -i /data/nymeriaplus/seq_001 \
+  --smpl-model-path /models/smpl/SMPL_NEUTRAL.pkl \
+  --target-fps 30
+```
+
+If `pymomentum` fails to import with a missing `libtorch.so`, export
+`LD_LIBRARY_PATH` as described in [Option A](#option-a-install-with-uv) before
+launching the viewer. If the viewer failed to load Nymeria sequence,
+switch to use `nymeria_dataset_legacy` branch instead.
+
 ## License
 
 This code is released by Meta under the Creative Commons
@@ -115,7 +181,7 @@ When using the Nymeria dataset and code, please attribute it as follows:
 }
 ```
 
-When using the NymeriaPlus dataset, please also attribute the following:
+When using the NymeriaPlus dataset, please attribute the following in addition:
 
 ```bibtex
 @misc{nymeriaplus26,
