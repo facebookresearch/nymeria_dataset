@@ -1,0 +1,60 @@
+[project]
+name = "nymeriaplus"
+version = "1.0.0"
+description = "Official API for the NymeriaPlus dataset (download + multimodal load)."
+readme = "README.md"
+license = { file = "LICENSE" }
+requires-python = "==3.12.*"
+authors = [{ name = "Meta Reality Labs Research" }]
+dependencies = [
+    "click>=8.1",
+    "imgui-bundle>=1.6,<1.7",
+    "moderngl>=5.12",
+    "moderngl-window>=3.1",
+    "numpy>=1.26",
+    "pillow>=10.0",
+    "projectaria-tools>=1.7,<2.0",
+    "requests>=2.31",
+    "tqdm>=4.66",
+    # MHR GLB loading/skinning is provided by pymomentum; there is no separate
+    # `mhr` Python package dependency. `pymomentum-cpu` is the public PyPI
+    # release of Meta's pymomentum library (the unprefixed `pymomentum` name on
+    # PyPI is an unrelated 2017 squat).
+    # Keep torch as a direct dependency because pymomentum.geometry needs
+    # libtorch symbols loaded before its compiled extension initializes.
+    "pymomentum-cpu>=0.1.110",
+    "torch>=2.8,<2.9",
+]
+
+[project.scripts]
+nymeriaplus-viewer = "nymeriaplus.cli.viewer:main"
+
+[project.optional-dependencies]
+smpl = ["smplx>=0.1.28", "scipy>=1.11"]
+# Alternative CUDA build of pymomentum (Linux + Windows only). This extra is
+# intentionally separate from `all`: extras cannot uninstall the core
+# `pymomentum-cpu` dependency, so users who want GPU pymomentum should install
+# it in an environment where the CPU package has been removed or overridden.
+gpu = ["pymomentum-gpu>=0.1.110"]
+# All non-conflicting optional features. GPU pymomentum is excluded because it
+# is an alternative implementation of the core pymomentum dependency, not an
+# additive feature.
+all = [
+    "smplx>=0.1.28",
+    "scipy>=1.11",
+]
+dev = ["pytest>=8.0", "requests-mock>=1.11"]
+
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["nymeriaplus*"]
+
+[tool.setuptools.package-data]
+nymeriaplus = [
+    "py.typed",
+    "assets/*",
+]

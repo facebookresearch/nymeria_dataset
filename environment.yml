@@ -1,0 +1,14 @@
+name: nymeriaplus
+channels:
+  - conda-forge
+dependencies:
+  - python=3.12
+  - pip
+  - click>=8.1
+  - numpy>=1.26
+  - pillow>=10.0
+  - pymomentum-cpu>=0.1.110,<0.2
+  - pytorch>=2.10,<2.11
+  - requests>=2.31
+  - scipy>=1.11
+  - tqdm>=4.66
