@@ -27,6 +27,7 @@ dependencies = [
 ]
 
 [project.scripts]
+nymeriaplus-download = "nymeriaplus.cli.download:main"
 nymeriaplus-viewer = "nymeriaplus.cli.viewer:main"
 
 [project.optional-dependencies]

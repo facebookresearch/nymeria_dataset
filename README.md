@@ -34,9 +34,9 @@ wristband videos, headset audio and etc.
 </p>
 <br>
 
-This repository hosts the API for downloading and visualizing the dataset.
-The `main` branch best supports NymeriaPlus dataset. For Nymeria dataset, switch to the
-`nymeria_dataset_legacy` branch, if `main` does not work.
+This repository hosts the API for downloading and visualizing the dataset. The
+`main` branch best supports the NymeriaPlus dataset. For the Nymeria dataset,
+switch to the `nymeria_dataset_legacy` branch if `main` does not work.
 
 ## Getting Started
 
@@ -88,7 +88,58 @@ conda activate nymeriaplus
 python -m pip install -r requirements-conda-pip.txt
 ```
 
-## Running the viewer
+### Downloading data
+
+Before running the code, you need to obtain a valid URL JSON file for the
+NymeriaPlus dataset from
+[this site](https://explorer.projectaria.com/nymeria_plus), and for the Nymeria
+dataset from [this site](https://explorer.projectaria.com/nymeria). Both
+websites allow you to filter sequences according to various attributes, e.g., by
+location, date, activity scenarios, and available annotations. Nymeria and
+NymeriaPlus datasets each provide 1100 sequences, which in total amounts to
+~80 TB per dataset. For convenience, we group files by groups, as defined in
+[`nymeriaplus/layout.py`](./nymeriaplus/layout.py). You can choose which groups
+to download after selecting the sequences from the corresponding dataset
+websites.
+
+After obtaining the JSON file, run the following script to download data. For
+downloading the Nymeria dataset, switch to the `nymeria_dataset_legacy` branch.
+
+With the `uv` install:
+
+```bash
+uv run nymeriaplus-download -i /path/to/url.json -o /path/to/outdir -y
+
+# equivalent invocations
+uv run python -m nymeriaplus.cli.download -i /path/to/url.json -o /path/to/outdir -y
+uv run python nymeriaplus/cli/download.py -i /path/to/url.json -o /path/to/outdir -y
+
+# or activate the environment first
+source .venv/bin/activate
+python nymeriaplus/cli/download.py -i /path/to/url.json -o /path/to/outdir -y
+```
+
+With the conda install:
+
+```bash
+conda activate nymeriaplus
+python nymeriaplus/cli/download.py -i /path/to/url.json -o /path/to/outdir -y
+```
+
+The downloader processes every sequence and artifact listed under the JSON
+`sequences` field, except `video_main_rgb` preview videos, which are ignored.
+Zip artifacts are extracted into each sequence directory. Single-file artifacts
+are placed according to the JSON `sequence_config` layout, matching
+[`nymeriaplus/layout.py`](./nymeriaplus/layout.py). Each sequence always gets a
+`LICENSE`: it is downloaded when present in the JSON, otherwise
+[`NYMERIAPLUS_DATASET_LICENSE`](./NYMERIAPLUS_DATASET_LICENSE) is copied into
+the sequence directory.
+
+Completed artifacts are tracked under `<out_dir>/.download_logs/` so interrupted
+downloads can be resumed without adding extra files to sequence directories. Use
+`--overwrite` to redownload artifacts that already have completion markers.
+
+### Running the viewer
 
 The `nymeriaplus-viewer` CLI loads a sequence, synchronizes its streams, and
 opens an interactive viewer. It is defined in
@@ -125,7 +176,7 @@ With the conda install:
 
 ```bash
 conda activate nymeriaplus
-nymeriaplus-viewer -i /path/to/nymeriaplus/sequence
+python nymeriaplus/cli/viewer.py -i /path/to/sequence
 ```
 
 Viewer options:
@@ -151,8 +202,8 @@ uv run nymeriaplus-viewer \
 
 If `pymomentum` fails to import with a missing `libtorch.so`, export
 `LD_LIBRARY_PATH` as described in [Option A](#option-a-install-with-uv) before
-launching the viewer. If the viewer failed to load Nymeria sequence,
-switch to use `nymeria_dataset_legacy` branch instead.
+launching the viewer. If the viewer fails to load a Nymeria sequence, switch to
+the `nymeria_dataset_legacy` branch instead.
 
 ## License
 
@@ -181,7 +232,7 @@ When using the Nymeria dataset and code, please attribute it as follows:
 }
 ```
 
-When using the NymeriaPlus dataset, please attribute the following in addition:
+When using the NymeriaPlus dataset, please also attribute the following:
 
 ```bibtex
 @misc{nymeriaplus26,

@@ -81,8 +81,6 @@ Group                             Contents
 
 Files in :data:`UNGROUPED_FILES` (LICENSE, metadata.json, the four primary
 ``data.vrs`` files) are individually selectable but **not** auto-included.
-:data:`ALWAYS_DOWNLOADED_FILES` (LICENSE + metadata.json) is the only
-auto-included subset.
 """
 
 from __future__ import annotations
@@ -253,22 +251,6 @@ UNGROUPED_FILES: list[str] = [
     SequenceLayout.RWRIST_DATA_VRS,
     SequenceLayout.OBSERVER_DATA_VRS,
 ]
-
-# The only files always downloaded regardless of group selection.
-ALWAYS_DOWNLOADED_FILES: list[str] = [
-    SequenceLayout.LICENSE,
-    SequenceLayout.METADATA_JSON,
-]
-
-# Subset of ``UNGROUPED_FILES`` surfaced as per-sequence custom metadata.
-CUSTOM_METADATA_FILES: list[str] = [
-    SequenceLayout.METADATA_JSON,
-]
-
-# The canonical primary recording used to anchor synchronization.
-MAIN_RECORDING_VRS: str = SequenceLayout.HEAD_DATA_VRS
-MAIN_RECORDING_MPS_DIR: str = "recording_head/mps"
-
 
 _GROUP_FILES: dict[DataGroups, list[str]] = {
     DataGroups.BODY_RAW: [
