@@ -1521,6 +1521,12 @@ class NymeriaPlusViewer(mglw.WindowConfig):
             self.state["show_smpl_skeleton"] = show_smpl
         elif key == self.wnd.keys.T:
             self.state["show_traj"] = not self.state["show_traj"]
+        elif key == self.wnd.keys.M:
+            show_mhr = not self.state["show_mhr_mesh"]
+            self.state["show_mhr_mesh"] = show_mhr
+            self.state["show_mhr_skeleton"] = show_mhr
+        elif key == self.wnd.keys.P:
+            self.state["show_pcd"] = not self.state["show_pcd"]
         elif key == self.wnd.keys.W:
             self.state["wireframe"] = not self.state["wireframe"]
         elif key == self.wnd.keys.X:
@@ -1708,15 +1714,18 @@ class NymeriaPlusViewer(mglw.WindowConfig):
         self.lines_scene_r.draw(
             view, proj, scene_viewport, line_width=s["camera_line_width"]
         )
-        self.lines_skel_r.draw(
-            view, proj, scene_viewport, line_width=s["skeleton_line_width"]
-        )
-        self.lines_mhr_skel_r.draw(
-            view, proj, scene_viewport, line_width=s["skeleton_line_width"]
-        )
-        self.lines_xsens_r.draw(
-            view, proj, scene_viewport, line_width=s["skeleton_line_width"]
-        )
+        if s["show_smpl_skeleton"]:
+            self.lines_skel_r.draw(
+                view, proj, scene_viewport, line_width=s["skeleton_line_width"]
+            )
+        if s["show_mhr_skeleton"]:
+            self.lines_mhr_skel_r.draw(
+                view, proj, scene_viewport, line_width=s["skeleton_line_width"]
+            )
+        if s["show_xsens_skeleton"]:
+            self.lines_xsens_r.draw(
+                view, proj, scene_viewport, line_width=s["skeleton_line_width"]
+            )
 
         if s["show_object_meshes"]:
             self.object_mesh_r.draw(
@@ -1924,22 +1933,30 @@ class NymeriaPlusViewer(mglw.WindowConfig):
         _, v = imgui.slider_int("Stride", int(s["play_stride"]), 1, 30)
         s["play_stride"] = int(v)
         _, s["follow"] = imgui.checkbox("Follow (f)", bool(s["follow"]))
-        imgui.text(
-            "Space=play  B=boxes  F=follow  I=RGB  L=labels  O=objects  S=SMPL  T=traj  W=wireframe  X=xsens"
-        )
         imgui.text("L-drag=pan  R-drag=orbit  M-drag=look-around")
         imgui.text("L+R-drag=roll  scroll=zoom")
         imgui.separator()
 
-        # Mesh
+        # Mesh + Skeleton (vertical layout, grouped by body model)
         if self.smpl_mesh_r is not None:
             _, s["show_smpl_mesh"] = imgui.checkbox(
                 "SMPL mesh (s)", bool(s["show_smpl_mesh"])
             )
-            imgui.same_line()
+        if self.smpl is not None:
+            _, s["show_smpl_skeleton"] = imgui.checkbox(
+                "SMPL skeleton", bool(s["show_smpl_skeleton"])
+            )
         if self.mhr_mesh_r is not None:
-            _, s["show_mhr_mesh"] = imgui.checkbox("MHR mesh", bool(s["show_mhr_mesh"]))
-            imgui.same_line()
+            _, s["show_mhr_mesh"] = imgui.checkbox(
+                "MHR mesh (m)", bool(s["show_mhr_mesh"])
+            )
+        if self.mhr is not None:
+            _, s["show_mhr_skeleton"] = imgui.checkbox(
+                "MHR skeleton", bool(s["show_mhr_skeleton"])
+            )
+        _, s["show_xsens_skeleton"] = imgui.checkbox(
+            "XSens skeleton (x)", bool(s["show_xsens_skeleton"])
+        )
         _, s["wireframe"] = imgui.checkbox("Wireframe (w)", bool(s["wireframe"]))
         if imgui.radio_button("Flat", s["shading_mode"] == 1):
             s["shading_mode"] = 1
@@ -1957,18 +1974,7 @@ class NymeriaPlusViewer(mglw.WindowConfig):
         _, v = imgui.slider_float("Background", float(s["bg_value"]), 0.0, 1.0)
         s["bg_value"] = float(v)
 
-        # Skeleton
-        if self.smpl is not None:
-            _, s["show_smpl_skeleton"] = imgui.checkbox(
-                "SMPL skeleton", bool(s["show_smpl_skeleton"])
-            )
-        if self.mhr is not None:
-            _, s["show_mhr_skeleton"] = imgui.checkbox(
-                "MHR skeleton", bool(s["show_mhr_skeleton"])
-            )
-        _, s["show_xsens_skeleton"] = imgui.checkbox(
-            "XSens skeleton (x)", bool(s["show_xsens_skeleton"])
-        )
+        # Skeleton line/joint sizing
         _, v = imgui.slider_float(
             "Skeleton line width", float(s["skeleton_line_width"]), 1.0, 10.0
         )
@@ -2006,7 +2012,7 @@ class NymeriaPlusViewer(mglw.WindowConfig):
 
         # Point cloud
         imgui.separator()
-        _, s["show_pcd"] = imgui.checkbox("Point cloud", bool(s["show_pcd"]))
+        _, s["show_pcd"] = imgui.checkbox("Point cloud (p)", bool(s["show_pcd"]))
         _, v = imgui.slider_float("PCD size", float(s["pcd_point_size"]), 1.0, 10.0)
         s["pcd_point_size"] = float(v)
         _, c = imgui.color_edit3("PCD color", list(s["pcd_color"]))
