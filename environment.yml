@@ -1,21 +1,14 @@
-name: pymeria
+name: nymeriaplus
 channels:
-  - defaults
   - conda-forge
 dependencies:
-  - python>=3.11,<3.13
-  - numpy
-  - pillow
-  - click
-  - requests
-  - pymomentum>=0.1.33
-  # Optional body models — comment out if not needed
-  - smplx
-  - scipy  # required by smplx
-  - mhr
-  - tqdm
+  - python=3.12
   - pip
-  - pip:
-    - loguru
-    - projectaria-tools>=1.5.5
-    - -e .
+  - click>=8.1
+  - numpy>=1.26
+  - pillow>=10.0
+  - pymomentum-cpu>=0.1.110,<0.2
+  - pytorch>=2.10,<2.11
+  - requests>=2.31
+  - scipy>=1.11
+  - tqdm>=4.66
