@@ -1,7 +1,0 @@
-*.swp
-__pycache__/
-*.py[cod]
-*$py.class
-*.egg-info
-.pixi/
-pixi.lock
