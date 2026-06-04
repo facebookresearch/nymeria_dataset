@@ -25,13 +25,15 @@ with additional annnotations and data.
 NymeriaPlus features: (1) improved human motion on both [MHR](https://github.com/facebookresearch/MHR)
 and [SMPL](https://smpl.is.tue.mpg.de/) formats; (2) dense 3D and 2D bounding box annotations for indoor objects and structured elements;
 (3) instance-level 3D object reconstruction from [ShapeR](https://github.com/facebookresearch/ShapeR);
-and (4) additional modalities such as basemap recordings, wristband videos, headset audio and etc.
-Data will be released soon in the coming few weeks. Stay tuned!
+and (4) additional modalities such as basemap recordings, wristband videos, headset audio and etc. 
 
 <p align="center">
   <img src=".github/nymeria_plus_teaser.jpg" width="98%" alt="NymeriaPlus teaser showing additional annotations and modalities" />
 </p>
 <br>
+
+⚠️ Please switch to the `main` branch for best support of the NymeriaPlus dataset. 
+The current branch is only intended for legacy support of the Nymeria dataset. 
 
 ## Getting Started
 
@@ -42,6 +44,7 @@ Clone the repository:
 ```
 git clone git@github.com:facebookresearch/nymeria_dataset.git
 cd nymeria_dataset
+git checkout nymeria_dataset_legacy
 ```
 
 #### Option A: Using conda
