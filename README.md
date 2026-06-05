@@ -62,9 +62,9 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 ```
 
 ```bash
-uv sync              # runtime deps, including projectaria-tools, torch, and pymomentum-cpu
-uv sync --extra gpu  # use CUDA-supported pymomentum-gpu on supported platforms
-uv sync --extra smpl # add SMPL body model support
+uv sync                 # runtime deps, including projectaria-tools, torch, and pymomentum-cpu
+uv sync --extra gpu     # use CUDA-supported pymomentum-gpu on supported platforms
+uv sync --extra smpl    # add SMPL body model support
 ```
 
 `pymomentum-cpu` depends on PyTorch's shared libraries at runtime. If importing
@@ -99,8 +99,12 @@ location, date, activity scenarios, and available annotations. Nymeria and
 NymeriaPlus datasets each provide 1100 sequences, which in total amounts to
 ~80 TB per dataset. For convenience, we group files by groups, as defined in
 [`nymeriaplus/layout.py`](./nymeriaplus/layout.py). You can choose which groups
-to download after selecting the sequences from the corresponding dataset
-websites.
+to download after selecting the sequences from the corresponding websites.
+
+<p align="center">
+  <img src=".github/explorer1.jpg" width="48%" alt="Dataset explorer" />
+  <img src=".github/explorer2.jpg" width="48%" alt="Dataset explorer - download with filtering" />
+</p>
 
 After obtaining the JSON file, run the following script to download data. For
 downloading the Nymeria dataset, switch to the `nymeria_dataset_legacy` branch.
@@ -130,10 +134,7 @@ The downloader processes every sequence and artifact listed under the JSON
 `sequences` field, except `video_main_rgb` preview videos, which are ignored.
 Zip artifacts are extracted into each sequence directory. Single-file artifacts
 are placed according to the JSON `sequence_config` layout, matching
-[`nymeriaplus/layout.py`](./nymeriaplus/layout.py). Each sequence always gets a
-`LICENSE`: it is downloaded when present in the JSON, otherwise
-[`NYMERIAPLUS_DATASET_LICENSE`](./NYMERIAPLUS_DATASET_LICENSE) is copied into
-the sequence directory.
+[`nymeriaplus/layout.py`](./nymeriaplus/layout.py).
 
 Completed artifacts are tracked under `<out_dir>/.download_logs/` so interrupted
 downloads can be resumed without adding extra files to sequence directories. Use
@@ -142,20 +143,28 @@ downloads can be resumed without adding extra files to sequence directories. Use
 ### Running the viewer
 
 The `nymeriaplus-viewer` CLI loads a sequence, synchronizes its streams, and
-opens an interactive viewer. It is defined in
-[`nymeriaplus/cli/viewer.py`](./nymeriaplus/cli/viewer.py) and registered as a
-console script in `pyproject.toml`.
+opens an interactive viewer. It supports loading the following modalities:
 
-The viewer supports loading the following modalities: RGB video streams of the
-participant's and the observer's headset; device trajectories of the
-participant's headset/wristbands and the observer's headset; semi-dense point
-cloud from the participant's headset; skeleton motion from XSens/MHR/SMPL,
-skinned mesh from MHR/SMPL; 3D object bounding boxes and the estimated visible
-2DBB projected onto the RGB cameras; instance-level object mesh reconstruction.
-The viewer performs device synchronization and tries to load all available
-modalities found for the input sequence. Missing modalities will be silently
-skipped. The GUI panel supports toggling show/hide per modality. Follow the
-instructions below to run the viewer.
+- RGB video streams of the participant's and the observer's headset
+- Device trajectories of the participant's headset/wristbands and the
+  observer's headset
+- Semi-dense point cloud from the participant's headset
+- Skeleton motion from XSens/MHR/SMPL, skinned mesh from MHR/SMPL
+- 3D object bounding boxes and the estimated visible 2DBB projected onto the
+  RGB cameras
+- Instance-level object mesh reconstruction
+
+<p align="center">
+  <img src=".github/viewer-mhr.jpg" width="49%" alt="Viewer with MHR mesh" />
+  <img src=".github/viewer-smpl.jpg" width="49%" alt="Viewer with SMPL mesh and RGB" />
+</p>
+
+The viewer always tries to load all available modalities found for the input
+sequence. Missing modalities will be silently skipped. Each loaded modality can
+be toggled to show/hide via the GUI. The available key bindings are annotated on
+the GUI, e.g., `MHR mesh (m)` means the `m` key toggles MHR rendering,
+`3D bounding boxes (b)` means the `b` key toggles 3D bounding boxes rendering,
+etc. Follow the instructions below to run the viewer.
 
 With the `uv` install:
 
@@ -179,11 +188,12 @@ conda activate nymeriaplus
 python nymeriaplus/cli/viewer.py -i /path/to/sequence
 ```
 
-Viewer options:
+<details>
+<summary>Viewer options</summary>
 
 - `-i PATH` (required): NymeriaPlus sequence root directory.
 - `--smpl-model-path PATH`: path to a SMPL `.pkl` model file. Required to
-  visualize the SMPL mesh. To enable this feature, install the `smplx` package
+  visualize the SMPL mesh. To enable this rendering, install the `smplx` package
   first via `uv sync --extra smpl` and download the SMPL model files from
   <https://smpl.is.tue.mpg.de/>. NymeriaPlus resolves all human motion using
   the SMPL neutral model.
@@ -191,12 +201,14 @@ Viewer options:
 - `--ui-scale FLOAT`: override the ImGui UI scale (range `0.25`–`4.0`). By
   default the viewer uses the window content scale.
 
-Example with the SMPL mesh enabled:
+</details>
+
+Example with the SMPL mesh enabled (assuming `xdata_smpl_neutral.npz` is downloaded):
 
 ```bash
 uv run nymeriaplus-viewer \
   -i /data/nymeriaplus/seq_001 \
-  --smpl-model-path /models/smpl/SMPL_NEUTRAL.pkl \
+  --smpl-model-path /models/smpl/SMPL_neutral.pkl \
   --target-fps 30
 ```
 
