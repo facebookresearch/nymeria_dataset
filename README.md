@@ -86,6 +86,7 @@ the experimental PyPI macOS wheel.
 conda env create -f environment.yml
 conda activate nymeriaplus
 python -m pip install -r requirements-conda-pip.txt
+python -m pip install -e . --no-deps
 ```
 
 ### Downloading data
@@ -127,7 +128,7 @@ With the conda install:
 
 ```bash
 conda activate nymeriaplus
-python nymeriaplus/cli/download.py -i /path/to/url.json -o /path/to/outdir -y
+nymeriaplus-download -i /path/to/url.json -o /path/to/outdir -y
 ```
 
 The downloader processes every sequence and artifact listed under the JSON
@@ -155,8 +156,8 @@ opens an interactive viewer. It supports loading the following modalities:
 - Instance-level object mesh reconstruction
 
 <p align="center">
-  <img src=".github/viewer-mhr.jpg" width="49%" alt="Viewer with MHR mesh" />
-  <img src=".github/viewer-smpl.jpg" width="49%" alt="Viewer with SMPL mesh and RGB" />
+  <img src=".github/viewer-mhr.jpg" width="48%" alt="Viewer with MHR mesh" />
+  <img src=".github/viewer-smpl.jpg" width="48%" alt="Viewer with SMPL mesh and RGB" />
 </p>
 
 The viewer always tries to load all available modalities found for the input
@@ -185,7 +186,7 @@ With the conda install:
 
 ```bash
 conda activate nymeriaplus
-python nymeriaplus/cli/viewer.py -i /path/to/sequence
+nymeriaplus-viewer -i /path/to/sequence
 ```
 
 <details>
