@@ -64,6 +64,27 @@ def _quat_wxyz_to_rot(q: np.ndarray) -> np.ndarray:
     )
 
 
+def nearest_within_tol(
+    timestamps: np.ndarray | None, query: int, tol_ns: int
+) -> int | None:
+    """Nearest value in sorted ``timestamps`` to ``query``, or ``None`` if the
+    array is empty or the closest entry is farther than ``tol_ns``."""
+    if timestamps is None or timestamps.size == 0:
+        return None
+    idx = int(np.searchsorted(timestamps, query))
+    candidates = []
+    if idx < len(timestamps):
+        candidates.append(int(timestamps[idx]))
+    if idx > 0:
+        candidates.append(int(timestamps[idx - 1]))
+    if not candidates:
+        return None
+    nearest = min(candidates, key=lambda ts: abs(ts - query))
+    if abs(nearest - query) > tol_ns:
+        return None
+    return nearest
+
+
 def _read_csv_by_object_uid(path: Path) -> dict[int, dict[str, str]]:
     with path.open(newline="") as fp:
         reader = csv.DictReader(fp, skipinitialspace=True)
@@ -87,6 +108,17 @@ class BoxyBBLoader:
         self.line_colors = np.zeros((0, 3), dtype=np.float32)
         self.bb2d_by_recording: dict[str, dict[int, list[Boxy2DBB]]] = {}
         self.bb2d_timestamps: dict[str, np.ndarray] = {}
+        # Per-stream object visibility for the non-RGB cameras (SLAM), used for
+        # camera-selectable "visible only" 3D filtering. RGB (214-1) visibility
+        # is derived on demand from ``bb2d_by_recording`` (see ``_rgb_visibility``)
+        # to avoid storing it twice. tag -> stream_id -> {timestamp: {uid}}.
+        self.visibility_by_recording: dict[str, dict[str, dict[int, set[int]]]] = {}
+        # tag -> stream_id -> sorted timestamp array (device time, ns).
+        self.visibility_timestamps: dict[str, dict[str, np.ndarray]] = {}
+        # tag -> (sorted timestamps, {timestamp: {uid}}) cache for RGB.
+        self._rgb_visibility_cache: dict[
+            str, tuple[np.ndarray, dict[int, set[int]]]
+        ] = {}
         self._is_valid = False
 
         bbox_csv = boxy_dir / "3dbb.csv"
@@ -203,44 +235,128 @@ class BoxyBBLoader:
             path = self.boxy_dir / filename
             if not path.is_file():
                 continue
-            by_timestamp = self._read_2d_bounding_box_csv(path)
-            if not by_timestamp:
-                continue
-            self.bb2d_by_recording[tag] = by_timestamp
-            self.bb2d_timestamps[tag] = np.array(
-                sorted(by_timestamp.keys()), dtype=np.int64
-            )
-            logger.info(
-                f"Loaded {sum(len(v) for v in by_timestamp.values())} "
-                f"Boxy 2D boxes for {tag} RGB"
-            )
+            by_timestamp, vis_by_stream = self._read_2d_bounding_box_csv(path)
+            if by_timestamp:
+                self.bb2d_by_recording[tag] = by_timestamp
+                self.bb2d_timestamps[tag] = np.array(
+                    sorted(by_timestamp.keys()), dtype=np.int64
+                )
+                logger.info(
+                    f"Loaded {sum(len(v) for v in by_timestamp.values())} "
+                    f"Boxy 2D boxes for {tag} RGB"
+                )
+            if vis_by_stream:
+                self.visibility_by_recording[tag] = vis_by_stream
+                self.visibility_timestamps[tag] = {
+                    stream: np.array(sorted(per_ts.keys()), dtype=np.int64)
+                    for stream, per_ts in vis_by_stream.items()
+                }
+                logger.info(
+                    f"Loaded Boxy 2D visibility for {tag}: "
+                    f"streams {sorted(vis_by_stream)}"
+                )
 
-    def _read_2d_bounding_box_csv(self, path: Path) -> dict[int, list[Boxy2DBB]]:
+    def _read_2d_bounding_box_csv(
+        self, path: Path
+    ) -> tuple[dict[int, list[Boxy2DBB]], dict[str, dict[int, set[int]]]]:
+        """Parse one 2D-bbox CSV.
+
+        Returns ``(rgb_by_timestamp, visibility_by_stream)`` where the first is
+        the RGB-only (``214-1``) full boxes used by the projection overlay, and
+        the second maps every non-RGB ``stream_id`` to
+        ``{timestamp: {object_uid}}`` for camera-selectable visibility queries.
+        RGB visibility is not duplicated here; it is derived from the first map.
+        """
         by_timestamp: dict[int, list[Boxy2DBB]] = {}
+        vis_by_stream: dict[str, dict[int, set[int]]] = {}
         with path.open(newline="") as fp:
             reader = csv.DictReader(fp, skipinitialspace=True)
             for row in reader:
-                if row.get("stream_id") != "214-1":
-                    continue
+                stream_id = row.get("stream_id")
                 try:
                     object_uid = int(row["object_uid"])
                     timestamp = int(row["timestamp[ns]"])
-                    box = Boxy2DBB(
-                        object_uid=object_uid,
-                        xmin=max(0.0, float(row["x_min[pixel]"])),
-                        xmax=max(0.0, float(row["x_max[pixel]"])),
-                        ymin=max(0.0, float(row["y_min[pixel]"])),
-                        ymax=max(0.0, float(row["y_max[pixel]"])),
-                        visibility=float(row["visibility_ratio[%]"]),
-                    )
+                    xmin = max(0.0, float(row["x_min[pixel]"]))
+                    xmax = max(0.0, float(row["x_max[pixel]"]))
+                    ymin = max(0.0, float(row["y_min[pixel]"]))
+                    ymax = max(0.0, float(row["y_max[pixel]"]))
+                    visibility = float(row["visibility_ratio[%]"])
                 except (KeyError, TypeError, ValueError):
                     continue
                 if not all(
-                    np.isfinite(v)
-                    for v in (box.xmin, box.xmax, box.ymin, box.ymax, box.visibility)
+                    np.isfinite(v) for v in (xmin, xmax, ymin, ymax, visibility)
                 ):
                     continue
-                if box.visibility < _BBOX_VISIBILITY_THRESHOLD:
+                if visibility < _BBOX_VISIBILITY_THRESHOLD:
                     continue
-                by_timestamp.setdefault(timestamp, []).append(box)
-        return by_timestamp
+                if stream_id == "214-1":
+                    by_timestamp.setdefault(timestamp, []).append(
+                        Boxy2DBB(
+                            object_uid=object_uid,
+                            xmin=xmin,
+                            xmax=xmax,
+                            ymin=ymin,
+                            ymax=ymax,
+                            visibility=visibility,
+                        )
+                    )
+                elif stream_id:
+                    vis_by_stream.setdefault(stream_id, {}).setdefault(
+                        timestamp, set()
+                    ).add(object_uid)
+        return by_timestamp, vis_by_stream
+
+    def _rgb_visibility(
+        self, tag: str
+    ) -> tuple[np.ndarray, dict[int, set[int]]] | None:
+        """RGB (``214-1``) visibility as ``(sorted timestamps, {ts: {uid}})``,
+        derived once from ``bb2d_by_recording`` and cached."""
+        cached = self._rgb_visibility_cache.get(tag)
+        if cached is not None:
+            return cached
+        by_timestamp = self.bb2d_by_recording.get(tag)
+        timestamps = self.bb2d_timestamps.get(tag)
+        if by_timestamp is None or timestamps is None:
+            return None
+        mapping = {
+            ts: {box.object_uid for box in boxes} for ts, boxes in by_timestamp.items()
+        }
+        cached = (timestamps, mapping)
+        self._rgb_visibility_cache[tag] = cached
+        return cached
+
+    def visibility_tags(self) -> set[str]:
+        """Recording tags for which any camera visibility data is available."""
+        return set(self.visibility_by_recording) | set(self.bb2d_by_recording)
+
+    def _stream_visibility(
+        self, tag: str, stream: str
+    ) -> tuple[np.ndarray, dict[int, set[int]]] | None:
+        if stream == "214-1":
+            return self._rgb_visibility(tag)
+        timestamps = self.visibility_timestamps.get(tag, {}).get(stream)
+        mapping = self.visibility_by_recording.get(tag, {}).get(stream)
+        if timestamps is None or mapping is None:
+            return None
+        return timestamps, mapping
+
+    def visible_object_uids(
+        self,
+        tag: str,
+        device_time_ns: int,
+        streams: tuple[str, ...],
+        tol_ns: int = 50_000_000,
+    ) -> set[int]:
+        """Union of object_uids visible in any of ``streams`` of recording
+        ``tag`` at ``device_time_ns`` (nearest annotated frame within tol)."""
+        visible: set[int] = set()
+        for stream in streams:
+            stream_vis = self._stream_visibility(tag, stream)
+            if stream_vis is None:
+                continue
+            timestamps, mapping = stream_vis
+            nearest_ts = nearest_within_tol(timestamps, device_time_ns, tol_ns)
+            if nearest_ts is None:
+                continue
+            visible |= mapping.get(nearest_ts, set())
+        return visible

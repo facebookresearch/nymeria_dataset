@@ -116,7 +116,7 @@ class RecordingLoader:
         t1 = self._vrs.get_last_time_ns_all_streams(TimeDomain.TIME_CODE)
         return t0, t1
 
-    def _to_device_time_ns(self, t_ns: int, time_domain: TimeDomain) -> int:
+    def to_device_time_ns(self, t_ns: int, time_domain: TimeDomain) -> int:
         if time_domain == TimeDomain.DEVICE_TIME:
             return t_ns
         if time_domain == TimeDomain.TIME_CODE:
@@ -134,7 +134,7 @@ class RecordingLoader:
     ) -> tuple[ImageData, ImageDataRecord, int]:
         if not self.has_rgb:
             raise RuntimeError(f"{self.tag} has no RGB stream")
-        t_dev = self._to_device_time_ns(t_ns, time_domain)
+        t_dev = self.to_device_time_ns(t_ns, time_domain)
         image_data, image_meta = self._vrs.get_image_data_by_time_ns(
             _RGB_STREAM_ID,
             time_ns=t_dev,
@@ -150,7 +150,7 @@ class RecordingLoader:
     ) -> tuple[ClosedLoopTrajectoryPose, int]:
         if not self.has_pose:
             raise RuntimeError(f"{self.tag} has no pose")
-        t_dev = self._to_device_time_ns(int(t_ns), time_domain)
+        t_dev = self.to_device_time_ns(int(t_ns), time_domain)
         pose = self._mps.get_closed_loop_pose(t_dev, TimeQueryOptions.CLOSEST)
         tdiff = int(pose.tracking_timestamp.total_seconds() * 1e9 - t_dev)
         return pose, tdiff

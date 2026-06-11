@@ -26,6 +26,7 @@ import numpy as np
 from imgui_bundle import imgui
 from moderngl_window.integrations.imgui_bundle import ModernglWindowRenderer
 from nymeriaplus.data_loader import NymeriaPlusDataLoader
+from nymeriaplus.loaders.boxy import nearest_within_tol
 from nymeriaplus.loaders.mhr import MHRBodyLoader
 from nymeriaplus.loaders.smpl import SMPLBodyLoader
 from nymeriaplus.synchronized import SynchronizedSequence
@@ -995,8 +996,8 @@ class NymeriaPlusViewer(mglw.WindowConfig):
         self._static_pts = axes_pts
         self._static_cols = axes_cols
         self.lines_static_r.update(axes_pts, axes_cols)
-        if loader.bbox is not None:
-            self.lines_bbox_r.update(loader.bbox.line_points, loader.bbox.line_colors)
+        # The 3D bbox line buffer is populated on the first render via
+        # _update_bbox_lines (which also handles visible-only filtering).
 
         # Point cloud (load + filter once)
         self._pcd_loaded = False
@@ -1042,6 +1043,10 @@ class NymeriaPlusViewer(mglw.WindowConfig):
             "show_frustums": True,
             "show_bbox": loader.bbox is not None,
             "show_bbox_labels": loader.bbox is not None,
+            "show_bbox_visible_only": False,
+            "bbox_vis_recording": "head",  # which headset: "head" | "observer"
+            "bbox_vis_rgb": True,  # include RGB camera (214-1) in visibility
+            "bbox_vis_slam": False,  # include SLAM left/right (1201-1, 1201-2)
             "show_object_meshes": loader.mesh is not None,
             "object_mesh_alpha": 1.0,
             "show_pcd": True,
@@ -1057,6 +1062,15 @@ class NymeriaPlusViewer(mglw.WindowConfig):
             and bool(loader.bbox.bb2d_by_recording),
             "rgb_panel_w": 480,
         }
+
+        # Default the "visible only" camera to a recording that actually has
+        # visibility data (otherwise the filter would silently show all boxes).
+        if loader.bbox is not None:
+            vis_tags = loader.bbox.visibility_tags()
+            if vis_tags and self.state["bbox_vis_recording"] not in vis_tags:
+                self.state["bbox_vis_recording"] = (
+                    "head" if "head" in vis_tags else sorted(vis_tags)[0]
+                )
 
         # RGB textures (lazy-create to actual image sizes)
         self.rgb_textures: dict[str, moderngl.Texture | None] = {
@@ -1084,6 +1098,11 @@ class NymeriaPlusViewer(mglw.WindowConfig):
 
         # Frame index tracking for VBO updates
         self._last_frame_idx = -1
+        # Cache for the 3D bbox line buffer (visible-only filtering).
+        self._last_bbox_key: tuple[bool, str, bool, bool, int] | None = None
+        self._visible_idx_cache: set[int] | None = None
+        # Warn only once if visibility time-sync fails (it falls back silently).
+        self._bbox_vis_warned = False
         self._controls_w_user: int | None = None
         self._rgb_w_user: int | None = None
         self._active_splitter: str | None = None
@@ -1194,18 +1213,91 @@ class NymeriaPlusViewer(mglw.WindowConfig):
         query_ts = self.rgb_capture_timestamps_ns.get(tag)
         if by_timestamp is None or timestamps is None or query_ts is None:
             return set()
-        idx = int(np.searchsorted(timestamps, int(query_ts)))
-        candidates = []
-        if idx < len(timestamps):
-            candidates.append(int(timestamps[idx]))
-        if idx > 0:
-            candidates.append(int(timestamps[idx - 1]))
-        if not candidates:
-            return set()
-        nearest_ts = min(candidates, key=lambda ts: abs(ts - int(query_ts)))
-        if abs(nearest_ts - int(query_ts)) > 50_000_000:
+        nearest_ts = nearest_within_tol(timestamps, int(query_ts), 50_000_000)
+        if nearest_ts is None:
             return set()
         return {box.object_uid for box in by_timestamp.get(nearest_ts, [])}
+
+    def _visible_bbox_indices(self, frame_idx: int) -> set[int] | None:
+        """Indices (into ``bbox.object_uids``) of objects visible from the
+        selected camera(s) at the synced frame.
+
+        The selection is driven by GUI state: ``bbox_vis_recording``
+        (``"head"`` | ``"observer"``) and the per-stream toggles
+        ``bbox_vis_rgb`` / ``bbox_vis_slam`` (RGB ``214-1`` and/or SLAM
+        left/right ``1201-1``/``1201-2``). Returns ``None`` when visibility
+        cannot be determined (no annotations or no VRS time-sync for the
+        recording), so callers fall back to showing all boxes. Returns an empty
+        set when nothing is visible.
+        """
+        bbox = self.loader.bbox
+        if bbox is None:
+            return None
+        tag = self.state["bbox_vis_recording"]
+        if tag not in bbox.visibility_tags():
+            return None
+        rec = self.loader.recordings.get(f"recording_{tag}")
+        if rec is None or rec.vrs is None:
+            return None
+        try:
+            t_dev = rec.to_device_time_ns(
+                int(self.synced.timestamps_ns[frame_idx]), TimeDomain.TIME_CODE
+            )
+        except Exception as e:  # noqa: BLE001
+            if not self._bbox_vis_warned:
+                logger.warning(
+                    f"bbox visibility time-sync failed for {tag}; "
+                    f"showing all boxes: {e}"
+                )
+                self._bbox_vis_warned = True
+            return None
+        streams: list[str] = []
+        if self.state["bbox_vis_rgb"]:
+            streams.append("214-1")
+        if self.state["bbox_vis_slam"]:
+            streams.extend(("1201-1", "1201-2"))
+        if not streams:
+            # No camera selected -> visibility undefined; show all boxes.
+            return None
+        visible_uids = bbox.visible_object_uids(tag, t_dev, tuple(streams))
+        return {i for i, uid in enumerate(bbox.object_uids) if uid in visible_uids}
+
+    def _update_bbox_lines(self, frame_idx: int) -> None:
+        """Refresh the 3D bbox line buffer, optionally filtered to the objects
+        visible in the selected camera(s) at the current frame."""
+        bbox = self.loader.bbox
+        if bbox is None:
+            return
+        visible_only = bool(self.state["show_bbox_visible_only"])
+        key = (
+            visible_only,
+            self.state["bbox_vis_recording"],
+            bool(self.state["bbox_vis_rgb"]),
+            bool(self.state["bbox_vis_slam"]),
+            frame_idx if visible_only else -1,
+        )
+        if key == self._last_bbox_key:
+            return
+        self._last_bbox_key = key
+
+        if not visible_only:
+            self._visible_idx_cache = None
+            self.lines_bbox_r.update(bbox.line_points, bbox.line_colors)
+            return
+
+        indices = self._visible_bbox_indices(frame_idx)
+        self._visible_idx_cache = indices
+        if indices is None:
+            # Visibility unavailable -> show all rather than blanking out.
+            self.lines_bbox_r.update(bbox.line_points, bbox.line_colors)
+            return
+        if not indices:
+            self.lines_bbox_r.count = 0
+            return
+        sel = sorted(indices)
+        points = bbox.edges[sel].reshape(-1, 3).astype(np.float32)
+        colors = np.repeat(bbox.colors[sel][:, None, :], 24, axis=1).reshape(-1, 3)
+        self.lines_bbox_r.update(points, colors)
 
     def _rgb_camera_calib(
         self,
@@ -1531,6 +1623,10 @@ class NymeriaPlusViewer(mglw.WindowConfig):
             self.state["wireframe"] = not self.state["wireframe"]
         elif key == self.wnd.keys.X:
             self.state["show_xsens_skeleton"] = not self.state["show_xsens_skeleton"]
+        elif key == self.wnd.keys.V:
+            self.state["show_bbox_visible_only"] = not self.state[
+                "show_bbox_visible_only"
+            ]
 
     def on_unicode_char_entered(self, char):
         self.imgui.unicode_char_entered(char)
@@ -1708,6 +1804,7 @@ class NymeriaPlusViewer(mglw.WindowConfig):
 
         # Lines (traj + frustums, then skeleton bones)
         if s["show_bbox"]:
+            self._update_bbox_lines(idx)
             self.lines_bbox_r.draw(
                 view, proj, scene_viewport, line_width=s["camera_line_width"]
             )
@@ -1760,6 +1857,7 @@ class NymeriaPlusViewer(mglw.WindowConfig):
         self.ctx.viewport = (0, 0, fb_w, fb_h)
         self._render_gui()
         self._render_bbox_labels(view, proj, scene_x, scene_w, fb_h)
+        self._render_frustum_labels(view, proj, scene_x, scene_w, fb_h)
         imgui.render()
         self.imgui.render(imgui.get_draw_data())
 
@@ -1847,6 +1945,44 @@ class NymeriaPlusViewer(mglw.WindowConfig):
             return None
         return x, y
 
+    def _draw_world_label(
+        self,
+        draw_list,
+        center: np.ndarray,
+        label: str,
+        color,
+        view: np.ndarray,
+        proj: np.ndarray,
+        scene_x: int,
+        scene_w: int,
+        height: int,
+        dx: float,
+        dy: float,
+        above: bool,
+    ) -> None:
+        """Draw a colored, padded text label at the projected ``center``.
+
+        ``above`` places the label box above the anchor (its bottom at ``y+dy``);
+        otherwise its top sits at ``y+dy``. ``dx`` is the horizontal offset.
+        """
+        screen = self._project_to_scene(center, view, proj, scene_x, scene_w, height)
+        if screen is None:
+            return
+        x, y = screen
+        pad_x = 4.0
+        pad_y = 2.0
+        text_size = imgui.calc_text_size(label)
+        py = y - text_size.y + dy if above else y + dy
+        pos = imgui.ImVec2(x + dx, py)
+        p_min = imgui.ImVec2(pos.x - pad_x, pos.y - pad_y)
+        p_max = imgui.ImVec2(pos.x + text_size.x + pad_x, pos.y + text_size.y + pad_y)
+        bg_col = imgui.get_color_u32(
+            imgui.ImVec4(float(color[0]), float(color[1]), float(color[2]), 0.82)
+        )
+        text_col = imgui.get_color_u32(imgui.ImVec4(1.0, 1.0, 1.0, 1.0))
+        draw_list.add_rect_filled(p_min, p_max, bg_col, 3.0)
+        draw_list.add_text(pos, text_col, label)
+
     def _render_bbox_labels(
         self,
         view: np.ndarray,
@@ -1864,29 +2000,61 @@ class NymeriaPlusViewer(mglw.WindowConfig):
             return
 
         draw_list = imgui.get_foreground_draw_list()
-        text_col = imgui.get_color_u32(imgui.ImVec4(1.0, 1.0, 1.0, 1.0))
-        pad_x = 4.0
-        pad_y = 2.0
-        for center, label, color in zip(
-            bbox.centers, bbox.labels, bbox.colors, strict=False
+        visible = (
+            self._visible_idx_cache if self.state["show_bbox_visible_only"] else None
+        )
+        for i, (center, label, color) in enumerate(
+            zip(bbox.centers, bbox.labels, bbox.colors, strict=False)
         ):
-            screen = self._project_to_scene(
-                center, view, proj, scene_x, scene_w, height
-            )
-            if screen is None:
+            if visible is not None and i not in visible:
                 continue
-            x, y = screen
-            text_size = imgui.calc_text_size(label)
-            pos = imgui.ImVec2(x + 5.0, y - text_size.y - 5.0)
-            p_min = imgui.ImVec2(pos.x - pad_x, pos.y - pad_y)
-            p_max = imgui.ImVec2(
-                pos.x + text_size.x + pad_x, pos.y + text_size.y + pad_y
+            self._draw_world_label(
+                draw_list,
+                center,
+                label,
+                color,
+                view,
+                proj,
+                scene_x,
+                scene_w,
+                height,
+                dx=5.0,
+                dy=-5.0,
+                above=True,
             )
-            bg_col = imgui.get_color_u32(
-                imgui.ImVec4(float(color[0]), float(color[1]), float(color[2]), 0.82)
-            )
-            draw_list.add_rect_filled(p_min, p_max, bg_col, 3.0)
-            draw_list.add_text(pos, text_col, label)
+
+    def _render_frustum_labels(
+        self,
+        view: np.ndarray,
+        proj: np.ndarray,
+        scene_x: int,
+        scene_w: int,
+        height: int,
+    ) -> None:
+        # Only the observer frustum is labeled -- the participant's head/wrists
+        # are obvious from the body; the observer is the one easy to lose track
+        # of in the scene.
+        if not self.state["show_frustums"]:
+            return
+        frame_idx = int(self.state["frame"])
+        arr = getattr(self.synced, "T_world_observer", None)
+        if arr is None or frame_idx >= arr.shape[0]:
+            return
+        center = arr[frame_idx][:3, 3].astype(np.float32)
+        self._draw_world_label(
+            imgui.get_foreground_draw_list(),
+            center,
+            "observer",
+            self.TRAJ_COLORS["observer"],
+            view,
+            proj,
+            scene_x,
+            scene_w,
+            height,
+            dx=6.0,
+            dy=6.0,
+            above=False,
+        )
 
     def _maybe_rebuild_static(self) -> None:
         s = self.state
@@ -1998,6 +2166,31 @@ class NymeriaPlusViewer(mglw.WindowConfig):
             _, s["show_bbox_labels"] = imgui.checkbox(
                 "BBox labels (l)", bool(s["show_bbox_labels"])
             )
+            vis_tags = self.loader.bbox.visibility_tags()
+            if vis_tags:
+                _, s["show_bbox_visible_only"] = imgui.checkbox(
+                    "BBox visible only (v)", bool(s["show_bbox_visible_only"])
+                )
+                if s["show_bbox_visible_only"]:
+                    avail = vis_tags
+                    imgui.text("  camera:")
+                    for rec_tag in ("head", "observer"):
+                        if rec_tag not in avail:
+                            continue
+                        imgui.same_line()
+                        if imgui.radio_button(
+                            rec_tag, s["bbox_vis_recording"] == rec_tag
+                        ):
+                            s["bbox_vis_recording"] = rec_tag
+                    imgui.text("  streams:")
+                    imgui.same_line()
+                    _, s["bbox_vis_rgb"] = imgui.checkbox(
+                        "RGB", bool(s["bbox_vis_rgb"])
+                    )
+                    imgui.same_line()
+                    _, s["bbox_vis_slam"] = imgui.checkbox(
+                        "SLAM", bool(s["bbox_vis_slam"])
+                    )
         if self.loader.mesh is not None:
             _, s["show_object_meshes"] = imgui.checkbox(
                 "ShapeR meshes (o)", bool(s["show_object_meshes"])
