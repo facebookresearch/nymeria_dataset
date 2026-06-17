@@ -55,12 +55,21 @@ from nymeriaplus.downloader import DownloadManager
     is_flag=True,
     help="Redownload artifacts even when hidden resume markers already exist.",
 )
+@click.option(
+    "-n",
+    "--num-workers",
+    type=click.IntRange(min=1),
+    default=4,
+    show_default=True,
+    help="Number of artifacts to download in parallel.",
+)
 def main(
     url_json: Path,
     out_rootdir: Path,
     select: tuple[str, ...],
     yes: bool,
     overwrite: bool,
+    num_workers: int,
 ) -> None:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 
@@ -80,11 +89,12 @@ def main(
     click.echo(f"  Available disk space: {free_gib:.2f} GiB")
     click.echo(f"  LICENSE downloads: {plan.num_license_downloads}")
     click.echo(f"  LICENSE local copies: {plan.num_license_copies}")
+    click.echo(f"  Parallel workers: {num_workers}")
 
     if not yes and not click.confirm("Proceed?", default=False):
         raise click.Abort()
 
-    summary = manager.download(ignore_existing=not overwrite)
+    summary = manager.download(ignore_existing=not overwrite, num_workers=num_workers)
     click.echo(f"Downloaded dataset to {out_rootdir}")
     click.echo(f"Detailed summary saved to {manager.logfile}")
     click.echo(f"Brief summary: {summary}")

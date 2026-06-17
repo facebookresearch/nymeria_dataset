@@ -13,6 +13,8 @@ import json
 import logging
 import shutil
 import tempfile
+import threading
+from concurrent.futures import as_completed, ThreadPoolExecutor
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
@@ -31,6 +33,7 @@ _RETRY_COUNT = 5
 _BACKOFF_FACTOR = 3
 _IGNORED_GROUPS = {"video_main_rgb"}
 _LICENSE_KEY = "LICENSE"
+_DEFAULT_NUM_WORKERS = 4
 
 
 class DownloadStatus(Enum):
@@ -193,6 +196,21 @@ class DownloadLink:
         shutil.move(str(tmp_file), str(destination))
 
 
+@dataclass
+class _Job:
+    """One unit of parallel work for the download pool.
+
+    A job either downloads a single artifact (``link`` set) or copies the
+    bundled license into a sequence directory (``link`` is ``None``).
+    """
+
+    seq_name: str
+    key: str
+    sequence_dir: Path
+    flag_path: Path
+    link: DownloadLink | None = None
+
+
 class DownloadManager:
     """Download every sequence artifact listed in a NymeriaPlus URL JSON."""
 
@@ -292,54 +310,97 @@ class DownloadManager:
                 indent=2,
             )
 
-    def download(self, *, ignore_existing: bool = True) -> dict[str, int]:
+    def download(
+        self,
+        *,
+        ignore_existing: bool = True,
+        num_workers: int = _DEFAULT_NUM_WORKERS,
+    ) -> dict[str, int]:
         self.write_data_summary()
         self._logs = {seq_name: {} for seq_name in self.sequences}
         summary = {status.name: 0 for status in DownloadStatus}
 
-        for seq_name, entries in self.sequences.items():
-            sequence_dir = self.out_rootdir / seq_name
-            sequence_dir.mkdir(parents=True, exist_ok=True)
+        jobs = self._collect_jobs()
+        num_workers = max(1, num_workers)
+        logger.info("running %d download jobs with %d workers", len(jobs), num_workers)
 
-            for key, data in entries.items():
-                if key in _IGNORED_GROUPS:
-                    continue
+        lock = threading.Lock()
 
-                link = DownloadLink.from_json(key, data)
-                try:
-                    destination = self._resolve_destination(sequence_dir, link)
-                    status = link.get(
-                        sequence_dir,
-                        destination=destination,
-                        flag_path=self._flag_path(seq_name, key),
-                        ignore_existing=ignore_existing,
-                    )
-                except Exception as e:
-                    status = link.status
-                    if status == DownloadStatus.UNKNOWN:
-                        status = DownloadStatus.ERR_NETWORK
-                    logger.error("failed to download %s/%s: %s", seq_name, key, e)
-
+        def handle(job: _Job) -> None:
+            status = self._run_job(job, ignore_existing)
+            with lock:
                 summary[status.name] += 1
-                self._logs[seq_name][key] = status.value
+                self._logs[job.seq_name][job.key] = status.value
                 self._write_download_summary(summary)
 
-            if _LICENSE_KEY not in entries:
-                try:
-                    status = self._copy_license(
-                        sequence_dir,
-                        self._flag_path(seq_name, _LICENSE_KEY),
-                        ignore_existing,
-                    )
-                except Exception as e:
-                    status = DownloadStatus.ERR_DESTINATION
-                    logger.error("failed to copy local license for %s: %s", seq_name, e)
-                summary[status.name] += 1
-                self._logs[seq_name][_LICENSE_KEY] = status.value
-                self._write_download_summary(summary)
+        if num_workers == 1:
+            for job in jobs:
+                handle(job)
+        else:
+            with ThreadPoolExecutor(max_workers=num_workers) as executor:
+                futures = [executor.submit(handle, job) for job in jobs]
+                for future in as_completed(futures):
+                    future.result()
 
         self._write_download_summary(summary)
         return summary
+
+    def _collect_jobs(self) -> list[_Job]:
+        """Flatten every sequence into an independent list of download jobs."""
+
+        jobs: list[_Job] = []
+        for seq_name, entries in self.sequences.items():
+            sequence_dir = self.out_rootdir / seq_name
+            for key, data in entries.items():
+                if key in _IGNORED_GROUPS:
+                    continue
+                jobs.append(
+                    _Job(
+                        seq_name=seq_name,
+                        key=key,
+                        sequence_dir=sequence_dir,
+                        flag_path=self._flag_path(seq_name, key),
+                        link=DownloadLink.from_json(key, data),
+                    )
+                )
+            if _LICENSE_KEY not in entries:
+                jobs.append(
+                    _Job(
+                        seq_name=seq_name,
+                        key=_LICENSE_KEY,
+                        sequence_dir=sequence_dir,
+                        flag_path=self._flag_path(seq_name, _LICENSE_KEY),
+                        link=None,
+                    )
+                )
+        return jobs
+
+    def _run_job(self, job: _Job, ignore_existing: bool) -> DownloadStatus:
+        """Execute one job and return its outcome; never raises."""
+
+        if job.link is None:
+            try:
+                return self._copy_license(
+                    job.sequence_dir, job.flag_path, ignore_existing
+                )
+            except Exception as e:
+                logger.error("failed to copy local license for %s: %s", job.seq_name, e)
+                return DownloadStatus.ERR_DESTINATION
+
+        try:
+            destination = self._resolve_destination(job.sequence_dir, job.link)
+            return job.link.get(
+                job.sequence_dir,
+                destination=destination,
+                flag_path=job.flag_path,
+                ignore_existing=ignore_existing,
+            )
+        except Exception as e:
+            status = job.link.status
+            if status == DownloadStatus.UNKNOWN:
+                status = DownloadStatus.ERR_NETWORK
+            logger.error("failed to download %s/%s: %s", job.seq_name, job.key, e)
+            return status
 
     @staticmethod
     def _select_sequences(
