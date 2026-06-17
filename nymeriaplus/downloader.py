@@ -202,6 +202,7 @@ class DownloadManager:
         out_rootdir: Path,
         *,
         license_source: Path | None = None,
+        select: list[str] | tuple[str, ...] | None = None,
     ) -> None:
         self.url_json = Path(url_json)
         if not self.url_json.is_file():
@@ -223,6 +224,8 @@ class DownloadManager:
             raise ValueError("input JSON must contain a non-empty `sequences` object")
         if not isinstance(self.sequence_config, dict):
             raise ValueError("input JSON must contain a `sequence_config` object")
+
+        self.sequences = self._select_sequences(self.sequences, select)
 
         self._single_file_destinations = self._build_single_file_destinations()
         self._logs: dict[str, dict[str, str | None]] = {}
@@ -337,6 +340,41 @@ class DownloadManager:
 
         self._write_download_summary(summary)
         return summary
+
+    @staticmethod
+    def _select_sequences(
+        sequences: dict[str, Any],
+        select: list[str] | tuple[str, ...] | None,
+    ) -> dict[str, Any]:
+        """Keep sequences whose name contains any of the `select` substrings.
+
+        An empty or omitted `select` keeps every sequence. A selection that
+        matches no sequence is an error, since it would download nothing.
+        """
+        if not select:
+            return sequences
+
+        patterns = [p for p in select if p]
+        if not patterns:
+            return sequences
+
+        selected = {
+            seq_name: entries
+            for seq_name, entries in sequences.items()
+            if any(pattern in seq_name for pattern in patterns)
+        }
+        if not selected:
+            raise ValueError(
+                "no sequences matched the requested selection "
+                f"{sorted(patterns)}; available sequences: {len(sequences)}"
+            )
+        logger.info(
+            "selected %d of %d sequences matching %s",
+            len(selected),
+            len(sequences),
+            sorted(patterns),
+        )
+        return selected
 
     def _build_single_file_destinations(self) -> dict[str, str]:
         ungrouped = self.sequence_config.get("ungrouped_files")

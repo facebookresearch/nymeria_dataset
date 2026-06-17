@@ -34,6 +34,17 @@ from nymeriaplus.downloader import DownloadManager
     help="Output directory for downloaded sequence folders.",
 )
 @click.option(
+    "-s",
+    "--select",
+    multiple=True,
+    metavar="SUBSTRING",
+    help=(
+        "Only download sequences whose name contains this substring. "
+        "Repeat to select multiple substrings (a sequence is downloaded if it "
+        "matches any of them). Omit to download every sequence."
+    ),
+)
+@click.option(
     "-y",
     "--yes",
     is_flag=True,
@@ -44,16 +55,24 @@ from nymeriaplus.downloader import DownloadManager
     is_flag=True,
     help="Redownload artifacts even when hidden resume markers already exist.",
 )
-def main(url_json: Path, out_rootdir: Path, yes: bool, overwrite: bool) -> None:
+def main(
+    url_json: Path,
+    out_rootdir: Path,
+    select: tuple[str, ...],
+    yes: bool,
+    overwrite: bool,
+) -> None:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 
-    manager = DownloadManager(url_json, out_rootdir)
+    manager = DownloadManager(url_json, out_rootdir, select=select)
     plan = manager.build_plan()
     free_gib = shutil.disk_usage(out_rootdir).free / (2**30)
 
     click.echo("Download summary")
     click.echo(f"  Input JSON: {url_json}")
     click.echo(f"  Output root: {out_rootdir}")
+    if select:
+        click.echo(f"  Selection substrings: {list(select)}")
     click.echo(f"  Sequences: {plan.num_sequences}")
     click.echo(f"  Artifacts to download: {plan.num_artifacts}")
     click.echo(f"  Ignored video_main_rgb artifacts: {plan.num_ignored_artifacts}")
