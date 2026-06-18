@@ -59,7 +59,7 @@ from nymeriaplus.downloader import DownloadManager
     "-n",
     "--num-workers",
     type=click.IntRange(min=1),
-    default=4,
+    default=8,
     show_default=True,
     help="Number of artifacts to download in parallel.",
 )

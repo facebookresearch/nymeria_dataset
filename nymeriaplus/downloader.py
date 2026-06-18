@@ -33,7 +33,7 @@ _RETRY_COUNT = 5
 _BACKOFF_FACTOR = 3
 _IGNORED_GROUPS = {"video_main_rgb"}
 _LICENSE_KEY = "LICENSE"
-_DEFAULT_NUM_WORKERS = 4
+_DEFAULT_NUM_WORKERS = 8
 
 
 class DownloadStatus(Enum):

@@ -145,6 +145,34 @@ Completed artifacts are tracked under `<out_dir>/.download_logs/` so interrupted
 downloads can be resumed without adding extra files to sequence directories. Use
 `--overwrite` to redownload artifacts that already have completion markers.
 
+<details>
+<summary>Downloader options</summary>
+
+- `-i PATH` (required): JSON file containing NymeriaPlus signed download URLs.
+- `-o PATH` (required): output directory for downloaded sequence folders.
+- `-s/--select SUBSTRING`: only download sequences whose name contains the given
+  substring. Repeat the flag to pass multiple substrings — a sequence is
+  downloaded if it matches any of them. Omit it to download every sequence in
+  the JSON. (A selection that matches no sequence is an error.) The filter only
+  filter sequences exist in URL JSON.
+- `-n/--num-workers N`: number of artifacts to download in parallel (default
+  `8`). Each artifact is verified and installed independently, so increasing the
+  worker count speeds up large downloads on fast connections; set `-n 1` for
+  fully sequential downloads.
+- `--overwrite`: redownload artifacts even when hidden resume markers already
+  exist.
+- `-y/--yes`: skip the confirmation prompt.
+
+</details>
+
+Example downloading all data from 20230706 and a particular sequence with UID 56uvqd,
+using 8 parallel workers:
+
+```bash
+uv run nymeriaplus-download -i /path/to/url.json -o /path/to/outdir -y \
+  -s 20230706 -s 56uvqd -n 8
+```
+
 ### Running the viewer
 
 The `nymeriaplus-viewer` CLI loads a sequence, synchronizes its streams, and
