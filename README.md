@@ -34,13 +34,12 @@ wristband videos, headset audio and etc.
 </p>
 <br>
 
-⚠️ **NOTE** (June 11, 2026): We have identified a few sequences with missing data
-due to an error in our release pipeline. We will patch the affected data as soon as possible
-— please check back here for updates. We apologize for the inconvenience.
-
 This repository hosts the API for downloading and visualizing the dataset. The
 `main` branch best supports the NymeriaPlus dataset. For the Nymeria dataset,
 switch to the `nymeria_dataset_legacy` branch if `main` does not work.
+
+📣🥳 **NOTE** (June 25, 2026): We have fixed all missing data for NymeriaPlus.
+Enjoy the dataset!
 
 ## Getting Started
 
