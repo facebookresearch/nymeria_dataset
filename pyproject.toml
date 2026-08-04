@@ -47,7 +47,7 @@ all = [
 dev = ["pytest>=8.0", "requests-mock>=1.11"]
 
 [build-system]
-requires = ["setuptools>=68", "wheel"]
+requires = ["setuptools>=83.0.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
